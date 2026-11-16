@@ -7,6 +7,13 @@ using System.Windows.Forms;
 
 namespace AutoApply
 {
+    /// <summary>窗口拖动区：顶部 44 逻辑像素 + 四周 8 逻辑像素，都当作标题栏来拖。</summary>
+    internal static class UiDrag
+    {
+        public const int StripHeight = 44;
+        public const int Edge = 8;
+    }
+
     /// <summary>所有页面/自绘控件的底座：命中区 + 悬停插值 + 统一的双缓冲绘制。</summary>
     internal abstract class Page : Control
     {
@@ -113,6 +120,59 @@ namespace AutoApply
 
         protected virtual void OnKey(KeyEventArgs e) { }
 
+        /// <summary>主题切换后刷新底色（自绘内容在下次重绘时自然取新调色板）。</summary>
+        public virtual void RefreshTheme()
+        {
+            BackColor = T.Bg;
+            Invalidate(true);
+        }
+
+        // ---------- 顶部拖动条：让鼠标穿透到窗体去做 HTCAPTION ----------
+        private const int WM_NCHITTEST = 0x0084;
+        private const int HTTRANSPARENT = -1;
+        private const int HTCLIENT = 1;
+
+        /// <summary>该点是否落在页面内某个可点区域上（是的话拖动条让位，按钮照常可点）。</summary>
+        internal bool HasHitAt(PointF lp)
+        {
+            for (int i = 0; i < Hits.Count; i++)
+                if (Hits[i].Rect.Contains(lp)) return true;
+            return false;
+        }
+
+        internal int HitCount { get { return Hits.Count; } }
+
+        internal string HitDebug(PointF lp)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append("hits=" + Hits.Count);
+            for (int i = 0; i < Hits.Count && i < 6; i++)
+                sb.Append(" [" + Hits[i].Id + " " + Hits[i].Rect.X.ToString("F0") + "," + Hits[i].Rect.Y.ToString("F0") + " " + Hits[i].Rect.Width.ToString("F0") + "x" + Hits[i].Rect.Height.ToString("F0") + "]");
+            sb.Append(" lp=" + lp.X.ToString("F0") + "," + lp.Y.ToString("F0"));
+            return sb.ToString();
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_NCHITTEST)
+            {
+                var cp = PointToClient(ScreenPoint(m.LParam));
+                if (cp.Y <= T.RS(UiDrag.StripHeight))
+                {
+                    // 拖动条里的按钮（如日志页右上「清空/复制全部/打开报告」）优先响应点击
+                    m.Result = (IntPtr)(HasHitAt(T.LP(cp)) ? HTCLIENT : HTTRANSPARENT);
+                    return;
+                }
+            }
+            base.WndProc(ref m);
+        }
+
+        internal static Point ScreenPoint(IntPtr lParam)
+        {
+            long v = lParam.ToInt64();
+            return new Point((short)(v & 0xFFFF), (short)((v >> 16) & 0xFFFF));
+        }
+
         protected override bool IsInputKey(Keys keyData) { return true; }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -167,7 +227,7 @@ namespace AutoApply
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             // 左侧栏极淡的竖向渐变
-            using (var lg = new LinearGradientBrush(new RectangleF(0, 0, Width, Height), Color.FromArgb(0x14, 0x18, 0x1F), T.Bg, 90f))
+            using (var lg = new LinearGradientBrush(new RectangleF(0, 0, Width, Height), T.RailTop, T.Bg, 90f))
                 g.FillRectangle(lg, ClientRectangle);
             using (var p = new Pen(T.LineSoft, 1)) g.DrawLine(p, Width - 1, 0, Width - 1, Height);
 
@@ -189,12 +249,12 @@ namespace AutoApply
                 bool sel = Selected == _items[i][0];
                 if (sel)
                 {
-                    T.FillRound(g, r, 10f, Color.FromArgb(0x1A, 0x21, 0x28));
+                    T.FillRound(g, r, 10f, T.RailSel);
                     T.FillRound(g, new RectangleF(r.X + 4, r.Y + 11, 3, 18), 1.5f, T.Jade);
                 }
                 else if (hv > 0.01f)
                 {
-                    T.FillRound(g, r, 10f, T.Alpha(Color.FromArgb(0x18, 0x1D, 0x25), (int)(hv * 255)));
+                    T.FillRound(g, r, 10f, T.Alpha(T.HoverSoft, (int)(hv * 255)));
                 }
                 var col = sel ? T.Text : T.Mix(T.Text2, T.Text, hv);
                 T.Draw(g, _items[i][1], T.F(13f, sel ? FontStyle.Bold : FontStyle.Regular), col, r.X + 18, r.Y + 11);
@@ -227,6 +287,29 @@ namespace AutoApply
             if (!_t.Enabled) _t.Start();
         }
 
+        public void RefreshTheme()
+        {
+            BackColor = T.Bg;
+            Invalidate(true);
+        }
+
+        private const int WM_NCHITTEST = 0x0084;
+        private const int HTTRANSPARENT = -1;
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_NCHITTEST)
+            {
+                var cp = PointToClient(Page.ScreenPoint(m.LParam));
+                if (cp.Y <= T.RS(UiDrag.StripHeight))
+                {
+                    m.Result = (IntPtr)HTTRANSPARENT;
+                    return;
+                }
+            }
+            base.WndProc(ref m);
+        }
+
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
@@ -255,7 +338,13 @@ namespace AutoApply
         public LogView()
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            BackColor = Color.FromArgb(0x0E, 0x11, 0x16);
+            BackColor = T.Console;
+        }
+
+        public void RefreshTheme()
+        {
+            BackColor = T.Console;
+            Invalidate(true);
         }
 
         public void Add(string level, string text)
@@ -284,7 +373,7 @@ namespace AutoApply
         {
             var g = e.Graphics;
             g.Clear(BackColor);
-            T.FillRound(g, new RectangleF(0, 0, Width, Height), 12f, Color.FromArgb(0x0E, 0x11, 0x16));
+            T.FillRound(g, new RectangleF(0, 0, Width, Height), 12f, T.Console);
             T.StrokeRound(g, new RectangleF(0, 0, Width, Height), 12f, T.LineSoft);
 
             var f = T.Mono(12f);
@@ -336,13 +425,19 @@ namespace AutoApply
         }
         private string _hover = "";
 
+        public void RefreshTheme()
+        {
+            BackColor = T.Bg;
+            Invalidate(true);
+        }
+
         private RectangleF Box { get { return new RectangleF(0, 0, Width, Height); } }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            T.FillRound(g, Box, 9f, Color.FromArgb(0x18, 0x1C, 0x23));
+            T.FillRound(g, Box, 9f, T.Field);
             T.StrokeRound(g, Box, 9f, T.Line);
             var s = string.Format("{0:00}:{1:00}", Hour, Min);
             var f = T.Num(15f, FontStyle.Bold);

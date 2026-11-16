@@ -6,33 +6,167 @@ using System.Windows.Forms;
 
 namespace AutoApply
 {
-    /// <summary>视觉语言：墨底 + 玉色 + 香槟金细线。所有绘制都走这里，保证风格统一。</summary>
+    /// <summary>
+    /// 视觉语言：夜（墨底 + 玉色 + 香槟金细线）/ 日（宣纸底 + 同色系加深）。
+    /// 所有绘制都走这里，主题切换只改这一处调色板，保证风格统一。
+    /// </summary>
     internal static class T
     {
-        // 底色
-        public static readonly Color Bg = Color.FromArgb(0x0B, 0x0D, 0x11);
-        public static readonly Color Bg2 = Color.FromArgb(0x11, 0x14, 0x1A);
-        public static readonly Color Surface = Color.FromArgb(0x15, 0x18, 0x1F);
-        public static readonly Color SurfaceHi = Color.FromArgb(0x1B, 0x20, 0x28);
-        public static readonly Color Line = Color.FromArgb(0x27, 0x2C, 0x36);
-        public static readonly Color LineSoft = Color.FromArgb(0x1E, 0x22, 0x2A);
+        /// <summary>true = 夜晚模式（默认），false = 日间模式。</summary>
+        public static bool Night = true;
 
-        // 文字
-        public static readonly Color Text = Color.FromArgb(0xEC, 0xEE, 0xF3);
-        public static readonly Color Text2 = Color.FromArgb(0x9A, 0xA3, 0xB2);
-        public static readonly Color Text3 = Color.FromArgb(0x63, 0x6B, 0x79);
+        // ---------- 底色 ----------
+        public static Color Bg;
+        public static Color BgTop;
+        public static Color Bg2;
+        public static Color Surface;
+        public static Color SurfaceHi;
+        public static Color Line;
+        public static Color LineSoft;
 
-        // 强调
-        public static readonly Color Jade = Color.FromArgb(0x6F, 0xE3, 0xBE);
-        public static readonly Color JadeDim = Color.FromArgb(0x37, 0x8B, 0x74);
-        public static readonly Color Gold = Color.FromArgb(0xD9, 0xB2, 0x6A);
-        public static readonly Color Warn = Color.FromArgb(0xE8, 0x9B, 0x5C);
-        public static readonly Color Danger = Color.FromArgb(0xE0, 0x6C, 0x6C);
-        public static readonly Color Blue = Color.FromArgb(0x6C, 0xA8, 0xE0);
+        // ---------- 面层（按深浅排开，供自绘控件取用）----------
+        public static Color RailTop;
+        public static Color RailSel;
+        public static Color Panel2;
+        public static Color Panel3;
+        public static Color Panel4;
+        public static Color Field;
+        public static Color Console;
+        public static Color HoverSoft;
+        public static Color HoverSoftHi;
+        public static Color HoverSoft2;
+        public static Color BtnHover;
+        public static Color BtnHover2;
+        public static Color Track;
+        public static Color LineHi;
+        public static Color Line2;
+        public static Color Line3;
 
-        public static readonly FontFamily FfUI = LoadFamily("Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI");
-        public static readonly FontFamily FfNum = LoadFamily("Segoe UI", "Microsoft YaHei UI");
-        public static readonly FontFamily FfMono = LoadFamily("Cascadia Mono", "Consolas", "Courier New");
+        // ---------- 文字 ----------
+        public static Color Text;
+        public static Color Text2;
+        public static Color Text3;
+        public static Color TextSoft;
+
+        // ---------- 强调 ----------
+        public static Color Jade;
+        public static Color JadeDim;
+        public static Color JadeHi;
+        public static Color JadeMid;
+        public static Color JadeLight;
+        public static Color Jade2;
+        public static Color JadeDeep;
+        public static Color JadeInk;
+        public static Color JadeInk2;
+        public static Color Gold;
+        public static Color Warn;
+        public static Color Danger;
+        public static Color Blue;
+
+        static T() { SetNight(true); }
+
+        /// <summary>切换主题调色板。切完要调用方重绘。</summary>
+        public static void SetNight(bool night)
+        {
+            Night = night;
+            if (night)
+            {
+                Bg = Color.FromArgb(0x0B, 0x0D, 0x11);
+                BgTop = Color.FromArgb(0x0D, 0x10, 0x15);
+                Bg2 = Color.FromArgb(0x11, 0x14, 0x1A);
+                Surface = Color.FromArgb(0x15, 0x18, 0x1F);
+                SurfaceHi = Color.FromArgb(0x1B, 0x20, 0x28);
+                Line = Color.FromArgb(0x27, 0x2C, 0x36);
+                LineSoft = Color.FromArgb(0x1E, 0x22, 0x2A);
+
+                RailTop = Color.FromArgb(0x14, 0x18, 0x1F);
+                RailSel = Color.FromArgb(0x1A, 0x21, 0x28);
+                Panel2 = Color.FromArgb(0x12, 0x16, 0x1C);
+                Panel3 = Color.FromArgb(0x18, 0x1D, 0x24);
+                Panel4 = Color.FromArgb(0x15, 0x19, 0x20);
+                Field = Color.FromArgb(0x18, 0x1C, 0x23);
+                Console = Color.FromArgb(0x0E, 0x11, 0x16);
+                HoverSoft = Color.FromArgb(0x18, 0x1D, 0x25);
+                HoverSoftHi = Color.FromArgb(0x24, 0x2B, 0x35);
+                HoverSoft2 = Color.FromArgb(0x24, 0x29, 0x31);
+                BtnHover = Color.FromArgb(0x22, 0x28, 0x31);
+                BtnHover2 = Color.FromArgb(0x22, 0x27, 0x30);
+                Track = Color.FromArgb(0x26, 0x2D, 0x37);
+                LineHi = Color.FromArgb(0x33, 0x3A, 0x46);
+                Line2 = Color.FromArgb(0x2A, 0x30, 0x39);
+                Line3 = Color.FromArgb(0x2A, 0x30, 0x3A);
+
+                Text = Color.FromArgb(0xEC, 0xEE, 0xF3);
+                Text2 = Color.FromArgb(0x9A, 0xA3, 0xB2);
+                Text3 = Color.FromArgb(0x63, 0x6B, 0x79);
+                TextSoft = Color.FromArgb(0xC9, 0xCF, 0xDA);
+
+                Jade = Color.FromArgb(0x6F, 0xE3, 0xBE);
+                JadeDim = Color.FromArgb(0x37, 0x8B, 0x74);
+                JadeHi = Color.FromArgb(0x8A, 0xEC, 0xC7);
+                JadeMid = Color.FromArgb(0x50, 0xC6, 0xA4);
+                JadeLight = Color.FromArgb(0xA6, 0xF5, 0xD8);
+                Jade2 = Color.FromArgb(0x5F, 0xD8, 0xB4);
+                JadeDeep = Color.FromArgb(0x2F, 0x8E, 0x76);
+                JadeInk = Color.FromArgb(0x07, 0x24, 0x1C);
+                JadeInk2 = Color.FromArgb(0x08, 0x2A, 0x22);
+                Gold = Color.FromArgb(0xD9, 0xB2, 0x6A);
+                Warn = Color.FromArgb(0xE8, 0x9B, 0x5C);
+                Danger = Color.FromArgb(0xE0, 0x6C, 0x6C);
+                Blue = Color.FromArgb(0x6C, 0xA8, 0xE0);
+            }
+            else
+            {
+                // 宣纸：暖白底 + 墨字 + 同色系加深的玉色，白天也保持"安静"的对比度
+                Bg = Color.FromArgb(0xF4, 0xF1, 0xEA);
+                BgTop = Color.FromArgb(0xFD, 0xFB, 0xF7);
+                Bg2 = Color.FromArgb(0xEF, 0xEB, 0xE2);
+                Surface = Color.FromArgb(0xFF, 0xFF, 0xFF);
+                SurfaceHi = Color.FromArgb(0xFA, 0xF7, 0xF1);
+                Line = Color.FromArgb(0xE3, 0xDC, 0xCD);
+                LineSoft = Color.FromArgb(0xEC, 0xE7, 0xDB);
+
+                RailTop = Color.FromArgb(0xFF, 0xFF, 0xFF);
+                RailSel = Color.FromArgb(0xF1, 0xEC, 0xE1);
+                Panel2 = Color.FromArgb(0xFC, 0xFA, 0xF5);
+                Panel3 = Color.FromArgb(0xF8, 0xF5, 0xEE);
+                Panel4 = Color.FromArgb(0xF7, 0xF4, 0xEC);
+                Field = Color.FromArgb(0xFF, 0xFF, 0xFF);
+                Console = Color.FromArgb(0xFB, 0xF9, 0xF3);
+                HoverSoft = Color.FromArgb(0xF2, 0xEE, 0xE4);
+                HoverSoftHi = Color.FromArgb(0xE9, 0xE4, 0xD6);
+                HoverSoft2 = Color.FromArgb(0xEF, 0xEB, 0xE0);
+                BtnHover = Color.FromArgb(0xED, 0xE8, 0xDB);
+                BtnHover2 = Color.FromArgb(0xE7, 0xE1, 0xD2);
+                Track = Color.FromArgb(0xE2, 0xDC, 0xCC);
+                LineHi = Color.FromArgb(0xD6, 0xCF, 0xBE);
+                Line2 = Color.FromArgb(0xDC, 0xD5, 0xC5);
+                Line3 = Color.FromArgb(0xD3, 0xCC, 0xBB);
+
+                Text = Color.FromArgb(0x1A, 0x1D, 0x23);
+                Text2 = Color.FromArgb(0x5B, 0x62, 0x70);
+                Text3 = Color.FromArgb(0x8E, 0x96, 0xA2);
+                TextSoft = Color.FromArgb(0x33, 0x38, 0x3F);
+
+                Jade = Color.FromArgb(0x14, 0x8A, 0x69);
+                JadeDim = Color.FromArgb(0x6E, 0xBE, 0xA6);
+                JadeHi = Color.FromArgb(0x36, 0xB4, 0x8D);
+                JadeMid = Color.FromArgb(0x1E, 0x9E, 0x7A);
+                JadeLight = Color.FromArgb(0x0F, 0x6B, 0x50);
+                Jade2 = Color.FromArgb(0x27, 0xA8, 0x82);
+                JadeDeep = Color.FromArgb(0x11, 0x6E, 0x55);
+                JadeInk = Color.FromArgb(0xFF, 0xFF, 0xFF);
+                JadeInk2 = Color.FromArgb(0xEC, 0xFF, 0xF8);
+                Gold = Color.FromArgb(0xA8, 0x7B, 0x2E);
+                Warn = Color.FromArgb(0xB8, 0x6C, 0x24);
+                Danger = Color.FromArgb(0xC0, 0x41, 0x3C);
+                Blue = Color.FromArgb(0x2C, 0x6B, 0xB0);
+            }
+        }
+
+        public static FontFamily FfUI = LoadFamily("Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI");
+        public static FontFamily FfNum = LoadFamily("Segoe UI", "Microsoft YaHei UI");
+        public static FontFamily FfMono = LoadFamily("Cascadia Mono", "Consolas", "Courier New");
 
         /// <summary>DPI 缩放系数（96dpi = 1.0）。所有布局用逻辑像素，绘制时统一缩放。</summary>
         public static float S = 1f;
@@ -46,11 +180,7 @@ namespace AutoApply
         {
             foreach (var n in names)
             {
-                try
-                {
-                    var ff = new FontFamily(n);
-                    return ff;
-                }
+                try { return new FontFamily(n); }
                 catch { }
             }
             return FontFamily.GenericSansSerif;
@@ -97,12 +227,12 @@ namespace AutoApply
             g.SmoothingMode = old;
         }
 
-        /// <summary>卡片：半透明面层 + 1px 细边，带极淡的顶部高光。</summary>
+        /// <summary>卡片：面层 + 1px 细边，悬停时抬一档。</summary>
         public static void Card(Graphics g, RectangleF r, float radius = 14f, bool hover = false)
         {
-            var c = hover ? Color.FromArgb(0x1C, 0x21, 0x2A) : Surface;
+            var c = hover ? SurfaceHi : Surface;
             FillRound(g, r, radius, c);
-            StrokeRound(g, r, radius, hover ? Color.FromArgb(0x35, 0x3D, 0x4A) : Line, 1f);
+            StrokeRound(g, r, radius, hover ? LineHi : Line, 1f);
         }
 
         public static void Draw(Graphics g, string s, Font f, Color c, float x, float y)
@@ -140,7 +270,7 @@ namespace AutoApply
         /// <summary>玉色主按钮的渐变。</summary>
         public static LinearGradientBrush JadeBrush(RectangleF r)
         {
-            return new LinearGradientBrush(r, Color.FromArgb(0x8A, 0xEC, 0xC7), Color.FromArgb(0x50, 0xC6, 0xA4), 35f);
+            return new LinearGradientBrush(r, JadeHi, JadeMid, 35f);
         }
 
         public static void Hairline(Graphics g, float x1, float x2, float y)

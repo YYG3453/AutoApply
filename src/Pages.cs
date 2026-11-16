@@ -48,8 +48,8 @@ namespace AutoApply
             T.Draw(g, "四平台自动投递 · 城市 " + App.Cfg.Cities.Count + " 个 · 关键词 " + App.Cfg.Keywords.Count + " 组", Fonts.Small, T.Text2, 32, 55);
 
             // 状态胶囊
-            var pr = new RectangleF(W - 112 - 18 - 126, 24, 126, 30);
-            T.FillRound(g, pr, 15f, Color.FromArgb(0x18, 0x1D, 0x24));
+            var pr = new RectangleF(W - 148 - 18 - 126, 24, 126, 30);
+            T.FillRound(g, pr, 15f, T.Panel3);
             T.StrokeRound(g, pr, 15f, running ? T.Alpha(T.Jade, 90) : T.Line);
             T.Dot(g, pr.X + 18, pr.Y + 15, 4.5f, running ? T.Jade : (eng != null && eng.LastStop == "done" ? T.Text3 : T.Text3));
             T.Draw(g, running ? "运行中" : "待命中", Fonts.Small, running ? T.Jade : T.Text2, pr.X + 30, pr.Y + 7);
@@ -84,7 +84,7 @@ namespace AutoApply
             {
                 var s = sites[i];
                 var row = new RectangleF(run.X + 16, ly + i * 46, run.Width - 32, 38);
-                T.FillRound(g, row, 10f, Color.FromArgb(0x12, 0x16, 0x1C));
+                T.FillRound(g, row, 10f, T.Panel2);
                 T.Dot(g, row.X + 16, row.Y + 19, 4f, s.Enabled ? Hue(s.Hue) : T.Text3);
                 T.Draw(g, s.Name, Fonts.Body, s.Enabled ? T.Text : T.Text3, row.X + 30, row.Y + 10);
 
@@ -124,7 +124,7 @@ namespace AutoApply
                 T.TextR(g, App.Stats.CountToday(s.Key).ToString(), Fonts.Num, T.Text, side.Right - 20, y - 2);
                 // 细进度条：以 max 为刻度
                 var bar = new RectangleF(side.X + 20, y + 26, side.Width - 40, 3);
-                T.FillRound(g, bar, 1.5f, Color.FromArgb(0x22, 0x27, 0x30));
+                T.FillRound(g, bar, 1.5f, T.BtnHover2);
                 float pct = s.Max > 0 ? Math.Min(1f, App.Stats.CountToday(s.Key) / (float)Math.Max(1, s.Max / 4)) : 0f;
                 if (pct > 0.02f)
                 {
@@ -160,18 +160,18 @@ namespace AutoApply
         private void DrawPrimary(Graphics g, RectangleF r, string text, string id, bool enabled)
         {
             float hv = H(id);
-            var col1 = enabled ? T.Mix(Color.FromArgb(0x8A, 0xEC, 0xC7), Color.FromArgb(0xA6, 0xF5, 0xD8), hv) : Color.FromArgb(0x2A, 0x30, 0x39);
-            var col2 = enabled ? T.Mix(Color.FromArgb(0x50, 0xC6, 0xA4), Color.FromArgb(0x5F, 0xD8, 0xB4), hv) : Color.FromArgb(0x24, 0x29, 0x31);
+            var col1 = enabled ? T.Mix(T.JadeHi, T.JadeLight, hv) : T.Line2;
+            var col2 = enabled ? T.Mix(T.JadeMid, T.Jade2, hv) : T.HoverSoft2;
             using (var lg = new LinearGradientBrush(new RectangleF(r.X, r.Y, Math.Max(2, r.Width), Math.Max(2, r.Height)), col1, col2, 35f))
                 T.FillRound(g, r, 11f, lg);
-            T.TextC(g, text, T.F(13f, FontStyle.Bold), enabled ? Color.FromArgb(0x08, 0x2A, 0x22) : T.Text3, r);
+            T.TextC(g, text, T.F(13f, FontStyle.Bold), enabled ? T.JadeInk2 : T.Text3, r);
             AddHit(id, r);
         }
 
         private void DrawGhost(Graphics g, RectangleF r, string text, string id, bool active)
         {
             float hv = H(id);
-            T.FillRound(g, r, 11f, T.Mix(Color.FromArgb(0x15, 0x19, 0x20), Color.FromArgb(0x22, 0x28, 0x31), hv));
+            T.FillRound(g, r, 11f, T.Mix(T.Panel4, T.BtnHover, hv));
             T.StrokeRound(g, r, 11f, active ? T.Mix(T.Line, T.Danger, hv * 0.6f) : T.LineSoft);
             T.TextC(g, text, T.F(12.5f), active ? T.Mix(T.Text2, T.Danger, hv) : T.Text3, r);
             if (active) AddHit(id, r);
@@ -232,11 +232,11 @@ namespace AutoApply
         private void DrawSwitch(Graphics g, RectangleF r, bool on, string id)
         {
             float hv = H(id);
-            var track = on ? T.Mix(T.JadeDim, T.Jade, hv * 0.35f) : T.Mix(Color.FromArgb(0x2A, 0x30, 0x3A), Color.FromArgb(0x33, 0x3A, 0x46), hv);
+            var track = on ? T.Mix(T.JadeDim, T.Jade, hv * 0.35f) : T.Mix(T.Line3, T.LineHi, hv);
             T.FillRound(g, r, r.Height / 2f, track);
             float knobR = r.Height - 8;
             float kx = on ? r.Right - knobR - 4 : r.X + 4;
-            using (var b = new SolidBrush(on ? Color.FromArgb(0x07, 0x24, 0x1C) : Color.FromArgb(0xC9, 0xCF, 0xDA)))
+            using (var b = new SolidBrush(on ? T.JadeInk : T.TextSoft))
                 g.FillEllipse(b, kx, r.Y + 4, knobR, knobR);
             AddHit(id, new RectangleF(r.X - 6, r.Y - 6, r.Width + 12, r.Height + 12));
         }
@@ -266,7 +266,7 @@ namespace AutoApply
                 var w = cfg.Windows[i];
                 float y = 88 + 66 + i * 62;
                 var row = new RectangleF(32 + 12, y - 8, W - 64 - 24, 50);
-                T.FillRound(g, row, 12f, Color.FromArgb(0x12, 0x16, 0x1C));
+                T.FillRound(g, row, 12f, T.Panel2);
                 T.Draw(g, w.Name, Fonts.Body, w.Enabled ? T.Text : T.Text3, row.X + 16, row.Y + 16);
                 T.Draw(g, "从", Fonts.Small, T.Text3, row.X + 82, row.Y + 17);
                 T.Draw(g, "到", Fonts.Small, T.Text3, row.X + 192, row.Y + 17);
@@ -298,7 +298,7 @@ namespace AutoApply
         private void DrawSmallGhost(Graphics g, RectangleF r, string text, string id)
         {
             float hv = H(id);
-            T.FillRound(g, r, 8f, T.Mix(Color.FromArgb(0x18, 0x1D, 0x25), Color.FromArgb(0x24, 0x2B, 0x35), hv));
+            T.FillRound(g, r, 8f, T.Mix(T.HoverSoft, T.HoverSoftHi, hv));
             T.StrokeRound(g, r, 8f, T.Mix(T.Line, T.Jade, hv * 0.5f));
             T.TextC(g, text, T.F(11.5f), T.Mix(T.Text2, T.Text, hv), r);
             AddHit(id, r);
@@ -307,13 +307,13 @@ namespace AutoApply
         private void DrawStepper(Graphics g, float x, float y, string id, int value, string unit, int step, int max)
         {
             var box = new RectangleF(x, y, 150, 34);
-            T.FillRound(g, box, 9f, Color.FromArgb(0x18, 0x1C, 0x23));
+            T.FillRound(g, box, 9f, T.Field);
             T.StrokeRound(g, box, 9f, T.Line);
             var minus = new RectangleF(box.X + 3, box.Y + 3, 30, box.Height - 6);
             var plus = new RectangleF(box.Right - 33, box.Y + 3, 30, box.Height - 6);
             float hm = H(id + "-"), hp = H(id + "+");
-            T.FillRound(g, minus, 7f, T.Alpha(Color.FromArgb(0x26, 0x2D, 0x37), (int)(60 + hm * 140)));
-            T.FillRound(g, plus, 7f, T.Alpha(Color.FromArgb(0x26, 0x2D, 0x37), (int)(60 + hp * 140)));
+            T.FillRound(g, minus, 7f, T.Alpha(T.Track, (int)(60 + hm * 140)));
+            T.FillRound(g, plus, 7f, T.Alpha(T.Track, (int)(60 + hp * 140)));
             T.TextC(g, "−", T.F(14f), T.Mix(T.Text2, T.Danger, hm), minus);
             T.TextC(g, "+", T.F(14f), T.Mix(T.Text2, T.Jade, hp), plus);
             var val = value.ToString() + " " + unit;
@@ -366,7 +366,7 @@ namespace AutoApply
         public SitesPage(MainForm app) : base(app)
         {
             _kw = new DarkText();
-            _kw.BackColor = Color.FromArgb(0x14, 0x18, 0x1F);
+            _kw.BackColor = T.RailTop;
             _kw.Text = string.Join("，", app.Cfg.Keywords.ToArray());
             _kw.TextChanged += (s, e) =>
             {
@@ -381,7 +381,7 @@ namespace AutoApply
             Controls.Add(_kw);
 
             _chrome = new DarkText();
-            _chrome.BackColor = Color.FromArgb(0x14, 0x18, 0x1F);
+            _chrome.BackColor = T.RailTop;
             _chrome.Text = app.Cfg.ChromePath;
             _chrome.TextChanged += (s, e) => { app.Cfg.ChromePath = _chrome.Text.Trim(); };
             Controls.Add(_chrome);
@@ -400,7 +400,7 @@ namespace AutoApply
             if (c == null) return;
             var r = new RectangleF(c.Left / T.S, c.Top / T.S, c.Width / T.S, c.Height / T.S);
             var outer = new RectangleF(r.X - 6, r.Y - 6, r.Width + 12, r.Height + 12);
-            T.FillRound(g, outer, 10f, Color.FromArgb(0x14, 0x18, 0x1F));
+            T.FillRound(g, outer, 10f, T.RailTop);
             T.StrokeRound(g, outer, 10f, T.Line);
         }
 
@@ -442,7 +442,7 @@ namespace AutoApply
                 var r = new RectangleF(x, y, wChip, 28);
                 string id = "city:" + name;
                 float hv = H(id);
-                T.FillRound(g, r, 14f, on ? T.Alpha(T.JadeDim, 70 + (int)(hv * 40)) : Color.FromArgb(0x18, 0x1C, 0x23));
+                T.FillRound(g, r, 14f, on ? T.Alpha(T.JadeDim, 70 + (int)(hv * 40)) : T.Field);
                 T.StrokeRound(g, r, 14f, on ? T.Alpha(T.Jade, 150) : T.Mix(T.Line, T.Text3, hv * 0.6f));
                 T.TextC(g, name, Fonts.Small, on ? T.Jade : T.Mix(T.Text2, T.Text, hv), r);
                 AddHit(id, r);
@@ -465,7 +465,7 @@ namespace AutoApply
         private void DrawSmallGhost(Graphics g, RectangleF r, string text, string id)
         {
             float hv = H(id);
-            T.FillRound(g, r, 8f, T.Mix(Color.FromArgb(0x18, 0x1D, 0x25), Color.FromArgb(0x24, 0x2B, 0x35), hv));
+            T.FillRound(g, r, 8f, T.Mix(T.HoverSoft, T.HoverSoftHi, hv));
             T.StrokeRound(g, r, 8f, T.Mix(T.Line, T.Jade, hv * 0.5f));
             T.TextC(g, text, T.F(11.5f), T.Mix(T.Text2, T.Text, hv), r);
             AddHit(id, r);
@@ -503,9 +503,16 @@ namespace AutoApply
         public DarkText()
         {
             BorderStyle = BorderStyle.None;
-            BackColor = Color.FromArgb(0x18, 0x1C, 0x23);
+            BackColor = T.Field;
             ForeColor = T.Text;
             Font = T.F(13f);
+        }
+
+        public void RefreshTheme()
+        {
+            BackColor = T.Field;
+            ForeColor = T.Text;
+            Invalidate();
         }
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -535,7 +542,7 @@ namespace AutoApply
         private void DrawSmallGhost(Graphics g, RectangleF r, string text, string id)
         {
             float hv = H(id);
-            T.FillRound(g, r, 8f, T.Mix(Color.FromArgb(0x18, 0x1D, 0x25), Color.FromArgb(0x24, 0x2B, 0x35), hv));
+            T.FillRound(g, r, 8f, T.Mix(T.HoverSoft, T.HoverSoftHi, hv));
             T.StrokeRound(g, r, 8f, T.Mix(T.Line, T.Jade, hv * 0.5f));
             T.TextC(g, text, T.F(11.5f), T.Mix(T.Text2, T.Text, hv), r);
             AddHit(id, r);
@@ -611,7 +618,7 @@ namespace AutoApply
         private void DrawSmallGhost(Graphics g, RectangleF r, string text, string id)
         {
             float hv = H(id);
-            T.FillRound(g, r, 8f, T.Mix(Color.FromArgb(0x18, 0x1D, 0x25), Color.FromArgb(0x24, 0x2B, 0x35), hv));
+            T.FillRound(g, r, 8f, T.Mix(T.HoverSoft, T.HoverSoftHi, hv));
             T.StrokeRound(g, r, 8f, T.Mix(T.Line, T.Jade, hv * 0.5f));
             T.TextC(g, text, T.F(11.5f), T.Mix(T.Text2, T.Text, hv), r);
             AddHit(id, r);

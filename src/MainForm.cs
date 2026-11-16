@@ -12,7 +12,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.0.4";
+        public const string Version = "1.0.5";
         public readonly string BaseDir;
         public AppCfg Cfg;
         public Engine Engine;
@@ -47,6 +47,14 @@ namespace AutoApply
             Cfg = AppCfg.Load(Path.Combine(BaseDir, "config.json"));
             Engine = new Engine(BaseDir) { Cfg = Cfg };
             Stats = Stats.Load(Engine.ScriptDir);
+
+            // 主题：--theme day|night 优先（渲染截图用），否则用配置里保存的
+            var rawArgs = Environment.GetCommandLineArgs();
+            string theme = string.IsNullOrEmpty(Cfg.Theme) ? "night" : Cfg.Theme;
+            for (int i = 0; i + 1 < rawArgs.Length; i++)
+                if (rawArgs[i] == "--theme" && (rawArgs[i + 1] == "day" || rawArgs[i + 1] == "night")) theme = rawArgs[i + 1];
+            T.SetNight(theme != "day");
+            Program.Trace("theme resolved = '" + theme + "' cfg='" + Cfg.Theme + "' night=" + T.Night + " bg=" + T.Bg.ToArgb().ToString("X8"));
 
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
@@ -130,6 +138,37 @@ namespace AutoApply
         {
             Cfg.Save(Path.Combine(BaseDir, "config.json"));
             var h = CfgChanged; if (h != null) h();
+        }
+
+        /// <summary>应用主题（night / day）：换调色板 + 刷新所有子控件。</summary>
+        public void ApplyTheme(string mode, bool persist)
+        {
+            T.SetNight(mode != "day");
+            BackColor = T.Bg;
+            ApplyThemeTo(this);
+            Invalidate(true);
+            if (_tray != null) _tray.Icon = MakeIcon();
+            if (persist)
+            {
+                Cfg.Theme = T.Night ? "night" : "day";
+                SaveCfg();
+            }
+        }
+
+        public void ToggleTheme()
+        {
+            ApplyTheme(T.Night ? "day" : "night", true);
+            Toast(T.Night ? "已切换到夜晚模式" : "已切换到日间模式");
+        }
+
+        private static void ApplyThemeTo(Control c)
+        {
+            if (c is Page) ((Page)c).RefreshTheme();
+            else if (c is NavRail) ((NavRail)c).RefreshTheme();
+            else if (c is LogView) ((LogView)c).RefreshTheme();
+            else if (c is TimeField) ((TimeField)c).RefreshTheme();
+            else if (c is DarkText) ((DarkText)c).RefreshTheme();
+            foreach (Control ch in c.Controls) ApplyThemeTo(ch);
         }
 
         public int EnabledSiteCount()
@@ -220,7 +259,7 @@ namespace AutoApply
 
         public void GotoPage(string key) { ShowPage(key); }
 
-        private void ShowPage(string key)
+        internal void ShowPage(string key)
         {
             _page = key;
             _rail.Selected = key;
@@ -235,7 +274,7 @@ namespace AutoApply
             _rail.Bounds = new Rectangle(0, 0, T.RS(212), ClientSize.Height);
             int px = T.RS(212), py = 0, pw = ClientSize.Width - px, ph = ClientSize.Height - T.RS(28);
             foreach (var p in _pages.Values) p.Bounds = new Rectangle(px, py, pw, ph);
-            _winBtns.Bounds = new Rectangle(ClientSize.Width - T.RS(112), 0, T.RS(112), T.RS(44));
+            _winBtns.Bounds = new Rectangle(ClientSize.Width - T.RS(WinButtons.WidthLogical), 0, T.RS(WinButtons.WidthLogical), T.RS(44));
         }
 
         protected override void OnResize(EventArgs e) { base.OnResize(e); LayoutAll(); }
@@ -250,7 +289,7 @@ namespace AutoApply
             float H = Height / T.S;
 
             using (var lg = new LinearGradientBrush(new RectangleF(0, 0, Math.Max(2, W), Math.Max(2, H)),
-                Color.FromArgb(0x0D, 0x10, 0x15), T.Bg, 60f))
+                T.BgTop, T.Bg, 60f))
                 g.FillRectangle(lg, 0, 0, W, H);
 
             // 底部状态栏
@@ -267,15 +306,32 @@ namespace AutoApply
         }
 
         // ---------- 窗口拖动 ----------
-        protected override void OnMouseDown(MouseEventArgs e)
+        private const int WM_NCHITTEST = 0x0084;
+        private const int HTCAPTION = 2;
+
+        /// <summary>无边框窗口：顶部 44px 与四周 6px 边缘都当作标题栏，按住即可拖动。</summary>
+        protected override void WndProc(ref Message m)
         {
-            base.OnMouseDown(e);
-            var lp = T.LP(e.Location);
-            if (lp.Y <= 44 && lp.X < Width / T.S - 112)
+            if (m.Msg == WM_NCHITTEST)
             {
-                ReleaseCapture();
-                SendMessage(Handle, 0xA1, 0x2, 0);
+                var cp = PointToClient(Page.ScreenPoint(m.LParam));
+                int W = ClientSize.Width, H = ClientSize.Height;
+                int edge = T.RS(UiDrag.Edge);
+                int strip = T.RS(UiDrag.StripHeight);
+                int btns = T.RS(WinButtons.WidthLogical);
+                bool overButtons = cp.X >= W - btns && cp.Y <= strip;
+                if (!overButtons)
+                {
+                    bool inStrip = cp.Y <= strip;
+                    bool onEdge = cp.X <= edge || cp.Y <= edge || cp.X >= W - edge || cp.Y >= H - edge;
+                    if (inStrip || onEdge)
+                    {
+                        m.Result = (IntPtr)HTCAPTION;
+                        return;
+                    }
+                }
             }
+            base.WndProc(ref m);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -316,9 +372,9 @@ namespace AutoApply
                 {
                     g.SmoothingMode = SmoothingMode.AntiAlias;
                     g.Clear(Color.Transparent);
-                    using (var br = new LinearGradientBrush(new Rectangle(0, 0, 64, 64), Color.FromArgb(0x8A, 0xEC, 0xC7), Color.FromArgb(0x2F, 0x8E, 0x76), 45f))
+                    using (var br = new LinearGradientBrush(new Rectangle(0, 0, 64, 64), T.JadeHi, T.JadeDeep, 45f))
                         g.FillEllipse(br, 4, 4, 56, 56);
-                    using (var b2 = new SolidBrush(Color.FromArgb(0x0B, 0x0D, 0x11)))
+                    using (var b2 = new SolidBrush(T.Bg))
                         g.FillEllipse(b2, 24, 24, 16, 16);
                 }
                 var h = bmp.GetHicon();
@@ -342,6 +398,9 @@ namespace AutoApply
         // ---------- 右上角窗口按钮 ----------
         private class WinButtons : Control
         {
+            public const int WidthLogical = 148;
+            private const float ZoneW = 48f;
+
             private readonly MainForm _f;
             private string _hover = "";
             public WinButtons(MainForm f)
@@ -350,22 +409,58 @@ namespace AutoApply
                 SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
                 BackColor = Color.Transparent;
             }
-            private RectangleF MinR { get { return new RectangleF(0, 0, Width / T.S / 2, Height / T.S); } }
-            private RectangleF CloseR { get { return new RectangleF(Width / T.S / 2, 0, Width / T.S / 2, Height / T.S); } }
+
+            private RectangleF ThemeR { get { return new RectangleF(0, 0, ZoneW, Height / T.S); } }
+            private RectangleF MinR { get { return new RectangleF(ZoneW, 0, ZoneW, Height / T.S); } }
+            private RectangleF CloseR { get { return new RectangleF(ZoneW * 2, 0, Width / T.S - ZoneW * 2, Height / T.S); } }
+
+            private void Pill(Graphics g, RectangleF r, Color c)
+            {
+                T.FillRound(g, new RectangleF(r.X + 6, r.Y + 6, r.Width - 12, r.Height - 12), 8f, c);
+            }
 
             protected override void OnPaint(PaintEventArgs e)
             {
                 var g = e.Graphics;
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 g.ScaleTransform(T.S, T.S);
-                if (_hover == "min")
+
+                if (_hover == "theme") Pill(g, ThemeR, T.BtnHover);
+                if (_hover == "min") Pill(g, MinR, T.BtnHover);
+                if (_hover == "close") Pill(g, CloseR, T.Alpha(T.Danger, 60));
+
+                // 主题：夜 = 月亮，日 = 太阳
+                float tx = ThemeR.X + ThemeR.Width / 2, ty = ThemeR.Y + ThemeR.Height / 2 + 1;
+                var tcol = _hover == "theme" ? T.Text : T.Text3;
+                if (T.Night)
                 {
-                    T.FillRound(g, new RectangleF(MinR.X + 6, MinR.Y + 6, MinR.Width - 12, MinR.Height - 12), 8f, Color.FromArgb(0x22, 0x28, 0x31));
+                    using (var path = new GraphicsPath())
+                    using (var reg = new System.Drawing.Region())
+                    {
+                        path.AddEllipse(tx - 6f, ty - 6f, 12f, 12f);
+                        reg.MakeEmpty();
+                        reg.Union(path);
+                        using (var cut = new GraphicsPath())
+                        {
+                            cut.AddEllipse(tx - 1.2f, ty - 8.2f, 12f, 12f);
+                            reg.Exclude(cut);
+                        }
+                        using (var b = new SolidBrush(tcol)) g.FillRegion(b, reg);
+                    }
                 }
-                if (_hover == "close")
+                else
                 {
-                    T.FillRound(g, new RectangleF(CloseR.X + 6, CloseR.Y + 6, CloseR.Width - 12, CloseR.Height - 12), 8f, T.Alpha(T.Danger, 60));
+                    using (var b = new SolidBrush(tcol)) g.FillEllipse(b, tx - 3.6f, ty - 3.6f, 7.2f, 7.2f);
+                    using (var p = new Pen(tcol, 1.2f))
+                        for (int i = 0; i < 8; i++)
+                        {
+                            double a = Math.PI * i / 4.0;
+                            float x1 = tx + (float)Math.Cos(a) * 6.2f, y1 = ty + (float)Math.Sin(a) * 6.2f;
+                            float x2 = tx + (float)Math.Cos(a) * 8.6f, y2 = ty + (float)Math.Sin(a) * 8.6f;
+                            g.DrawLine(p, x1, y1, x2, y2);
+                        }
                 }
+
                 using (var p = new Pen(_hover == "min" ? T.Text : T.Text3, 1.2f))
                     g.DrawLine(p, MinR.X + MinR.Width / 2 - 6, MinR.Y + MinR.Height / 2 + 3, MinR.X + MinR.Width / 2 + 6, MinR.Y + MinR.Height / 2 + 3);
                 using (var p = new Pen(_hover == "close" ? T.Danger : T.Text3, 1.2f))
@@ -376,11 +471,18 @@ namespace AutoApply
                 }
             }
 
+            private string Hit(PointF lp)
+            {
+                if (ThemeR.Contains(lp)) return "theme";
+                if (MinR.Contains(lp)) return "min";
+                if (CloseR.Contains(lp)) return "close";
+                return "";
+            }
+
             protected override void OnMouseMove(MouseEventArgs e)
             {
                 base.OnMouseMove(e);
-                var lp = T.LP(e.Location);
-                string h = MinR.Contains(lp) ? "min" : (CloseR.Contains(lp) ? "close" : "");
+                string h = Hit(T.LP(e.Location));
                 if (h != _hover) { _hover = h; Invalidate(); }
                 Cursor = h.Length > 0 ? Cursors.Hand : Cursors.Default;
             }
@@ -391,8 +493,11 @@ namespace AutoApply
             {
                 base.OnMouseDown(e);
                 var lp = T.LP(e.Location);
-                if (MinR.Contains(lp)) _f.WindowState = FormWindowState.Minimized;
-                else if (CloseR.Contains(lp)) _f.Close();
+                string h = Hit(lp);
+                if (h == "theme") _f.ToggleTheme();
+                else if (h == "min") _f.WindowState = FormWindowState.Minimized;
+                else if (h == "close") _f.Close();
+                Invalidate();
             }
         }
     }

@@ -45,6 +45,8 @@ namespace AutoApply
         public string ChromePath = "";
         public string ProfileDir = "browser-profile";
         public bool MinimizeToTray = true;
+        /// <summary>"night" = 夜晚模式（默认），"day" = 日间模式。</summary>
+        public string Theme = "night";
 
         public static string[] DefaultCities()
         {
