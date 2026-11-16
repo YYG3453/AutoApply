@@ -1,0 +1,20 @@
+# 运行时产物（不入库）
+autoapply.log
+browser-profile/
+shots/
+dist/
+*.zip
+
+# 个人投递数据（不入库）
+scripts/state.jsonl
+scripts/state-zp.jsonl
+scripts/state-yjs.jsonl
+scripts/state-q51.jsonl
+scripts/report.md
+scripts/run-*.log
+
+# 编译中间物
+*.pdb
+*.obj
+bin/
+obj/
