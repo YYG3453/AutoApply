@@ -57,10 +57,7 @@ internal static class LogoGen
                     g.FillRectangle(br, r);
 
                 // 顶部冷光（让黑面不塌）
-                using (var sheen = new LinearGradientBrush(
-                    new RectangleF(r.X, r.Y, r.Width, r.Height * 0.34f),
-                    Color.FromArgb(20, 160, 196, 255), Color.FromArgb(0, 160, 196, 255), 90f))
-                    g.FillRectangle(sheen, r.X, r.Y, r.Width, r.Height * 0.34f);
+                
 
                 float ox = r.X, oy = r.Y;
 
@@ -148,9 +145,9 @@ internal static class LogoGen
                 g.Restore(st);
             }
 
-            // 边缘：不再描一圈浅色边，保持纯色轮廓（避免看起来像半透明）
+            // 边缘：用 1px 不透明深色环封边，边界像素不再是"半透明"
             using (var plate2 = RoundRect(r, side * 0.235f))
-            using (var pen = new Pen(Color.FromArgb(255, 28, 34, 58), Math.Max(1.0f, side * 0.006f)))
+            using (var pen = new Pen(Color.FromArgb(255, 20, 25, 46), Math.Max(1.2f, side * 0.010f)))
             {
                 var stX = g.Save();
                 g.SetClip(plate2, CombineMode.Intersect);
@@ -158,14 +155,7 @@ internal static class LogoGen
                 g.Restore(stX);
             }
 
-            if (s >= 64)
-            {
-                float in2 = side * 0.030f;
-                var ir = new RectangleF(r.X + in2, r.Y + in2, r.Width - in2 * 2, r.Height - in2 * 2);
-                using (var ipath = RoundRect(ir, side * 0.205f))
-                using (var pen = new Pen(Color.FromArgb(48, 200, 222, 255), Math.Max(0.7f, side * 0.0045f)))
-                    g.DrawPath(pen, ipath);
-            }
+            
         }
         return bmp;
     }
