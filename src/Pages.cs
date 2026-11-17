@@ -97,6 +97,7 @@ namespace AutoApply
                     else if (res.Sent > 0) { right = "已投 " + res.Sent; rc = T.Jade; }
                     else if (res.Stop == "limit") { right = "撞上限"; rc = T.Warn; }
                     else if (res.Stop == "captcha") { right = "需验证"; rc = T.Warn; }
+                    else if (res.Stop == "login") { right = "未登录"; rc = T.Warn; }
                     else right = "0";
                 }
                 else if (running && eng.CurrentSite == s.Key) { right = "运行中…"; rc = T.Jade; }
@@ -324,6 +325,7 @@ namespace AutoApply
 
         protected override void OnHit(string id)
         {
+            if (!App.CanEdit) { App.Toast("投递进行中，先点「停止」再改计划"); return; }
             var cfg = App.Cfg;
             if (id == "sched") { cfg.ScheduleEnabled = !cfg.ScheduleEnabled; App.SaveCfg(); Invalidate(); return; }
             if (id.StartsWith("w"))
@@ -370,6 +372,7 @@ namespace AutoApply
             _kw.Text = string.Join("，", app.Cfg.Keywords.ToArray());
             _kw.TextChanged += (s, e) =>
             {
+                if (!app.CanEdit) return;
                 var list = new List<string>();
                 foreach (var part in _kw.Text.Split(new[] { ',', '，', '、', ' ' }, StringSplitOptions.RemoveEmptyEntries))
                 {
@@ -383,7 +386,7 @@ namespace AutoApply
             _chrome = new DarkText();
             _chrome.BackColor = T.RailTop;
             _chrome.Text = app.Cfg.ChromePath;
-            _chrome.TextChanged += (s, e) => { app.Cfg.ChromePath = _chrome.Text.Trim(); };
+            _chrome.TextChanged += (s, e) => { if (app.CanEdit) app.Cfg.ChromePath = _chrome.Text.Trim(); };
             Controls.Add(_chrome);
         }
 
@@ -415,6 +418,11 @@ namespace AutoApply
 
             T.Draw(g, "平台与关键词", Fonts.H1, T.Text, 32, 20);
             T.Draw(g, "关键词会轮流搜；城市决定筛选范围", Fonts.Small, T.Text2, 32, 55);
+
+            // 投递进行中把两个输入框锁成只读，避免改到一半
+            bool edit = App.CanEdit;
+            if (_kw.ReadOnly != !edit) _kw.ReadOnly = !edit;
+            if (_chrome.ReadOnly != !edit) _chrome.ReadOnly = !edit;
 
             var c1 = new RectangleF(32, 92, W - 64, 118);
             T.Card(g, c1, 16f);
@@ -474,6 +482,10 @@ namespace AutoApply
         protected override void OnHit(string id)
         {
             var cfg = App.Cfg;
+            if (id.StartsWith("city:") || id == "all" || id == "none")
+            {
+                if (!App.CanEdit) { App.Toast("投递进行中，先点「停止」再改城市"); return; }
+            }
             if (id.StartsWith("city:"))
             {
                 var name = id.Substring(5);

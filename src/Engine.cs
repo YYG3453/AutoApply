@@ -19,6 +19,8 @@ namespace AutoApply
         public int Errs;
         public string Stop = "";
         public string Error = "";
+        /// <summary>需要人工处理的原因（未登录 / 验证码）；空 = 一切正常。</summary>
+        public string Needs = "";
         public DateTime Started;
         public DateTime Ended;
         public int Elapsed { get { return Math.Max(0, (int)(Ended - Started).TotalSeconds); } }
@@ -42,6 +44,8 @@ namespace AutoApply
         public event Action StateChanged;
         public event Action<string, int> SiteSent;               // siteKey, sent so far
         public event Action<string> SiteSwith;
+        /// <summary>某一站需要人工处理：siteName, reason。</summary>
+        public event Action<string, string> SiteAttention;
 
         private Thread _worker;
         private Process _node;
@@ -208,6 +212,11 @@ namespace AutoApply
 
         private string RunNodeTool(string script, string args, int timeoutMs)
         {
+            return RunNodeTool(script, args, timeoutMs, null);
+        }
+
+        private string RunNodeTool(string script, string args, int timeoutMs, string cdpMatch)
+        {
             try
             {
                 var psi = new ProcessStartInfo(NodePath(), "--experimental-websocket \"" + script + "\" " + args);
@@ -219,6 +228,7 @@ namespace AutoApply
                 psi.StandardOutputEncoding = Encoding.UTF8;
                 psi.StandardErrorEncoding = Encoding.UTF8;
                 psi.EnvironmentVariables["CDP_PORT"] = Cfg.Port.ToString();
+                if (!string.IsNullOrEmpty(cdpMatch)) psi.EnvironmentVariables["CDP_MATCH"] = cdpMatch;
                 using (var p = Process.Start(psi))
                 {
                     var so = p.StandardOutput.ReadToEndAsync();
@@ -229,6 +239,35 @@ namespace AutoApply
             }
             catch { }
             return "";
+        }
+
+        // ---------------- 开跑前自检：登录态 / 验证码 ----------------
+        /// <summary>在页面里判断：loading 页面还没渲染完 / ok / nologin 未登录 / loginurl 被踢到登录页 / captcha 有验证码。</summary>
+        private const string READY_JS =
+            "(()=>{var t=(document.body&&document.body.innerText)||'';var u=location.href;" +
+            "if(/passport|\\/login|login\\.php/i.test(u)&&t.length<3000)return 'loginurl';" +
+            "if(/滑动验证|访问验证|请按住滑块|拖动到最右边|安全验证/.test(t))return 'captcha';" +
+            "if(t.length<200)return 'loading';" +
+            "var needLogin=/扫码登录|登录\\/注册|立即登录|请先登录|登录后查看|登录查看/.test(t);" +
+            "var loggedIn=/我的简历|在线简历|个人中心|我的申请|消息|退出登录|已投递/.test(t);" +
+            "if(needLogin&&!loggedIn)return 'nologin';" +
+            "return 'ok';})()";
+
+        private bool CheckSiteReady(SiteCfg s, out string reason)
+        {
+            reason = "";
+            for (int i = 0; i < 5; i++)
+            {
+                var r = RunNodeTool("cdp.js", "eval " + READY_JS, 15000, s.Match).Trim().Trim('"', '\'', '\r', '\n');
+                if (r == "ok") return true;
+                if (r == "loading") { Thread.Sleep(1500); continue; }
+                if (r == "captcha") { reason = "页面上有验证码，需要人工拖一次滑块"; return false; }
+                if (r == "nologin" || r == "loginurl") { reason = "还没登录，点「打开浏览器」登录一次就好"; return false; }
+                if (r.Length == 0) { reason = "页面没响应（可能标签页挂了）"; return false; }
+                return true;    // 其它返回值就当作可用，别误杀
+            }
+            reason = "页面一直加载不完，先跳过";
+            return false;
         }
 
         // ---------------- 运行 ----------------
@@ -308,7 +347,27 @@ namespace AutoApply
                         continue;
                     }
 
+                    string reason;
+                    if (!CheckSiteReady(s, out reason))
+                    {
+                        r.Stop = reason.IndexOf("验证码", StringComparison.Ordinal) >= 0 ? "captcha" : "login";
+                        r.Needs = reason;
+                        r.Ended = DateTime.Now;
+                        L("warn", "!! " + s.Name + "：" + reason + "（这一站跳过）");
+                        var at = SiteAttention;
+                        if (at != null) { try { at(s.Name, reason); } catch { } }
+                        Changed();
+                        continue;
+                    }
+
                     RunOneSite(s, r);
+                    if (r.Stop == "captcha" || r.Stop == "login")
+                    {
+                        r.Needs = r.Stop == "captcha" ? "页面上有验证码，需要人工拖一次滑块" : "未登录，需要人工登录一次";
+                        L("warn", "!! " + s.Name + " 需要人工处理：" + r.Needs);
+                        var at2 = SiteAttention;
+                        if (at2 != null) { try { at2(s.Name, r.Needs); } catch { } }
+                    }
                     r.Ended = DateTime.Now;
                     Changed();
                 }

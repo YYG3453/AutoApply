@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace AutoApply
@@ -25,6 +26,36 @@ namespace AutoApply
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        /// <summary>同一时间只允许一个实例；第二次双击时把已经在跑的那个叫到前面来。</summary>
+        private static Mutex _singleInstance;
+
+        private static bool AnotherInstanceRunning()
+        {
+            bool created;
+            _singleInstance = new Mutex(true, "AutoApply.SingleInstance.1", out created);
+            if (created) return false;
+            try
+            {
+                var h = FindWindow(null, "AutoApply · 四平台自动投递");
+                if (h != IntPtr.Zero)
+                {
+                    ShowWindow(h, 9);          // SW_RESTORE
+                    SetForegroundWindow(h);
+                }
+            }
+            catch { }
+            return true;
+        }
 
         /// <summary>--test-hit：把窗体与子控件的 WM_NCHITTEST 结果写到 hit-test.txt（验收拖动区）。</summary>
         private static void TestHit(MainForm f)
@@ -158,6 +189,14 @@ namespace AutoApply
             try
             {
                 Trace("creating form");
+                var joinedBefore = string.Join(" ", args);
+                bool tooling = joinedBefore.IndexOf("--render", StringComparison.OrdinalIgnoreCase) >= 0
+                            || joinedBefore.IndexOf("--test-hit", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (!tooling && AnotherInstanceRunning())
+                {
+                    Trace("another instance is already running, activating it and exiting");
+                    return;
+                }
                 var f = new MainForm();
                 Trace("form created, running");
                 var joined = string.Join(" ", args);

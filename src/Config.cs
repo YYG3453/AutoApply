@@ -47,6 +47,12 @@ namespace AutoApply
         public bool MinimizeToTray = true;
         /// <summary>"night" = 夜晚模式（默认），"day" = 日间模式。</summary>
         public string Theme = "night";
+        /// <summary>旧版 boss-apply 目录（相对程序目录或绝对路径），用于收编计划任务/历史记录/登录态。</summary>
+        public string LegacyDir = "..\\_automation\\boss-apply";
+        /// <summary>启动时自动禁用旧的 BOSSTouDi-* 计划任务（避免和本程序重复投递）。</summary>
+        public bool LegacyTakeover = true;
+        /// <summary>出问题时弹托盘气泡（需要人工登录/过验证码时）。</summary>
+        public bool Notify = true;
 
         public static string[] DefaultCities()
         {

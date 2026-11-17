@@ -6,13 +6,15 @@ using System.Diagnostics;
 using System.Drawing.Text;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows.Forms;
+using Timer = System.Windows.Forms.Timer;
 
 namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.0.9";
+        public const string Version = "1.0.10";
         public readonly string BaseDir;
         public AppCfg Cfg;
         public Engine Engine;
@@ -102,6 +104,11 @@ namespace AutoApply
                 if (!Engine.Running) { _pulse.Stop(); _pulseT = 0; }
             });
             Engine.SiteSent += (k, n) => Ui(() => _dash.Invalidate());
+            Engine.SiteAttention += (site, reason) => Ui(() =>
+            {
+                Notify(site + " 需要你动手一下", reason);
+                _dash.Invalidate();
+            });
 
             _sched.Tick += (s, e) => Ui(TickSchedule);
             _sched.Start();
@@ -123,6 +130,11 @@ namespace AutoApply
             var ws = new Timer { Interval = 900 };
             ws.Tick += (s, e) => { ws.Stop(); Stats = Stats.Load(Engine.ScriptDir); _dash.Invalidate(); };
             ws.Start();
+
+            // 启动后台收编旧流程（禁用旧计划任务 / 合并历史记录 / 迁移登录态）
+            var legacy = new Timer { Interval = 1200 };
+            legacy.Tick += (s, e) => { legacy.Stop(); legacy.Dispose(); StartLegacyTakeover(); };
+            legacy.Start();
         }
 
         private void Ui(Action a)
@@ -140,6 +152,49 @@ namespace AutoApply
             _toast = msg ?? "";
             _toastTimer.Stop(); _toastTimer.Start();
             Invalidate(new Rectangle(0, Height - T.RS(28), Width, T.RS(28)));
+        }
+
+        /// <summary>投递进行中不许改配置（改了一半的时长/城市会让本轮语义混乱）。</summary>
+        public bool CanEdit { get { return Engine == null || !Engine.Running; } }
+
+        /// <summary>需要人处理的事情：底部提示 + 托盘气泡（窗口在托盘时也能看见）。</summary>
+        public void Notify(string title, string text)
+        {
+            Toast(text);
+            Program.Trace("notify: " + title + " / " + text);
+            try
+            {
+                if (Cfg.Notify && _tray != null)
+                    _tray.ShowBalloonTip(5000, title, text, ToolTipIcon.Warning);
+            }
+            catch { }
+        }
+
+        public void RefreshStats()
+        {
+            Ui(() =>
+            {
+                Stats = Stats.Load(Engine.ScriptDir);
+                _dash.Invalidate();
+                _plan.Invalidate();
+            });
+        }
+
+        private void StartLegacyTakeover()
+        {
+            var t = new Thread(() =>
+            {
+                try
+                {
+                    Legacy.Takeover(this,
+                        (lv, tx) => Ui(() => { _log.View.Add(lv, tx); }),
+                        (title, text) => Ui(() => Notify(title, text)));
+                    RefreshStats();
+                }
+                catch (Exception ex) { Program.Trace("legacy takeover failed: " + ex); }
+            });
+            t.IsBackground = true;
+            t.Start();
         }
 
         public void SaveCfg()
