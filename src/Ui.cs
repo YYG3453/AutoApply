@@ -220,7 +220,7 @@ namespace AutoApply
             };
         }
 
-        private RectangleF ItemRect(int i) { return new RectangleF(14, 96 + i * 46, Width - 28, 40); }
+        private RectangleF ItemRect(int i) { return new RectangleF(14, 96 + i * 52, Width - 28, 46); }
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -234,9 +234,9 @@ namespace AutoApply
             // Logo
             T.Mark(g, new RectangleF(21, 27, 26, 26));
 
-            T.Draw(g, "AUTO", T.Num(15, FontStyle.Bold), T.Text, 56, 24);
-            T.Draw(g, "APPLY", T.Num(15, FontStyle.Bold), T.Alpha(T.Gold, 220), 56, 42);
-            T.Draw(g, "v1.0 · 桌面版", T.F(10.5f), T.Text3, 56, 62);
+            T.Draw(g, "AUTO", T.Num(17, FontStyle.Bold), T.Text, 56, 22);
+            T.Draw(g, "APPLY", T.Num(17, FontStyle.Bold), T.Alpha(T.Gold, 220), 56, 42);
+            T.Draw(g, "v1.0 · 桌面版", T.F(11.5f), T.Text3, 56, 65);
 
             for (int i = 0; i < _items.Length; i++)
             {
@@ -246,14 +246,14 @@ namespace AutoApply
                 if (sel)
                 {
                     T.FillRound(g, r, 10f, T.RailSel);
-                    T.FillRound(g, new RectangleF(r.X + 4, r.Y + 11, 3, 18), 1.5f, T.Jade);
+                    T.FillRound(g, new RectangleF(r.X + 4, r.Y + 12, 3, 22), 1.5f, T.Jade);
                 }
                 else if (hv > 0.01f)
                 {
                     T.FillRound(g, r, 10f, T.Alpha(T.HoverSoft, (int)(hv * 255)));
                 }
                 var col = sel ? T.Text : T.Mix(T.Text2, T.Text, hv);
-                T.Draw(g, _items[i][1], T.F(13f, sel ? FontStyle.Bold : FontStyle.Regular), col, r.X + 18, r.Y + 11);
+                T.Draw(g, _items[i][1], T.F(15f, sel ? FontStyle.Bold : FontStyle.Regular), col, r.X + 18, r.Y + 12);
             }
 
             // 底部：状态

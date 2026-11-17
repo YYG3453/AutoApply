@@ -14,7 +14,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.0.10";
+        public const string Version = "1.0.11";
         public readonly string BaseDir;
         public AppCfg Cfg;
         public Engine Engine;
@@ -53,8 +53,16 @@ namespace AutoApply
             // 主题：--theme day|night 优先（渲染截图用），否则用配置里保存的
             var rawArgs = Environment.GetCommandLineArgs();
             string theme = string.IsNullOrEmpty(Cfg.Theme) ? "night" : Cfg.Theme;
+            T.NightStyle = Cfg.NightStyle;
             for (int i = 0; i + 1 < rawArgs.Length; i++)
+            {
                 if (rawArgs[i] == "--theme" && (rawArgs[i + 1] == "day" || rawArgs[i + 1] == "night")) theme = rawArgs[i + 1];
+                if (rawArgs[i] == "--nightstyle")
+                {
+                    int ns;
+                    if (int.TryParse(rawArgs[i + 1], out ns)) T.NightStyle = ns < 0 ? 0 : (ns > 3 ? 3 : ns);
+                }
+            }
             T.SetNight(theme != "day");
             Program.Trace("theme resolved = '" + theme + "' cfg='" + Cfg.Theme + "' night=" + T.Night + " bg=" + T.Bg.ToArgb().ToString("X8"));
 
@@ -217,6 +225,7 @@ namespace AutoApply
             if (persist)
             {
                 Cfg.Theme = T.Night ? "night" : "day";
+                Cfg.NightStyle = T.NightStyle;
                 SaveCfg();
             }
         }

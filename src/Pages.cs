@@ -31,6 +31,50 @@ namespace AutoApply
             switch (hue) { case 1: return T.Blue; case 2: return T.Gold; case 3: return T.Warn; default: return T.Jade; }
         }
 
+        /// <summary>KPI 卡右上角的小色块图标（0 箭头 / 1 列表 / 2 网格 / 3 时钟）。</summary>
+        private static void Chip(Graphics g, RectangleF rc, int kind)
+        {
+            Color c;
+            switch (kind)
+            {
+                case 1: c = T.Blue; break;
+                case 2: c = Color.FromArgb(0xA7, 0x8B, 0xFA); break;
+                case 3: c = T.Gold; break;
+                default: c = T.Jade; break;
+            }
+            T.FillRound(g, rc, 9f, T.Alpha(c, 34));
+            T.StrokeRound(g, rc, 9f, T.Alpha(c, 92));
+            float cx = rc.X + rc.Width / 2f, cy = rc.Y + rc.Height / 2f;
+            using (var p = new Pen(c, 1.8f))
+            {
+                p.StartCap = LineCap.Round; p.EndCap = LineCap.Round; p.LineJoin = LineJoin.Round;
+                switch (kind)
+                {
+                    case 1: // 列表
+                        for (int i = -1; i <= 1; i++)
+                        {
+                            g.DrawLine(p, cx - 7, cy + i * 5.5f, cx + 7, cy + i * 5.5f);
+                        }
+                        break;
+                    case 2: // 网格
+                        for (int i = 0; i < 2; i++)
+                            for (int j = 0; j < 2; j++)
+                                T.FillRound(g, new RectangleF(cx - 7 + i * 8.5f, cy - 7 + j * 8.5f, 5.5f, 5.5f), 1.6f, c);
+                        break;
+                    case 3: // 时钟
+                        g.DrawEllipse(p, cx - 7.5f, cy - 7.5f, 15f, 15f);
+                        g.DrawLine(p, cx, cy - 4, cx, cy);
+                        g.DrawLine(p, cx, cy, cx + 4.5f, cy + 3);
+                        break;
+                    default: // 上扬箭头
+                        g.DrawLine(p, cx, cy + 7.5f, cx, cy - 7.5f);
+                        g.DrawLine(p, cx - 5.5f, cy - 2f, cx, cy - 7.5f);
+                        g.DrawLine(p, cx + 5.5f, cy - 2f, cx, cy - 7.5f);
+                        break;
+                }
+            }
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
@@ -67,8 +111,8 @@ namespace AutoApply
                 T.Draw(g, labels[i], Fonts.Small, T.Text2, r.X + 18, r.Y + 15);
                 T.Draw(g, values[i], Fonts.Big, i == 0 ? T.Jade : T.Text, r.X + 17, r.Y + 36);
                 T.Draw(g, subs[i], Fonts.Tiny, T.Text3, r.X + 18, r.Y + 70);
-                // 右上角装饰细线
-                using (var p = new Pen(T.Alpha(T.Gold, 40), 1)) g.DrawLine(p, r.Right - 54, r.Y + 22, r.Right - 18, r.Y + 22);
+                // 右上角色块图标（撞色小徽章）
+                Chip(g, new RectangleF(r.Right - 50, r.Y + 14, 32, 32), i);
             }
 
             // ---- 本次运行 ----
