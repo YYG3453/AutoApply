@@ -26,3 +26,6 @@ hit-test.txt
 *.out
 *.err
 tools/*.exe
+schtest.txt
+scripts/run.log
+logs/
