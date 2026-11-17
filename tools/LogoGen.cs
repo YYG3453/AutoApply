@@ -9,8 +9,8 @@ using System.Collections.Generic;
 // Usage: LogoGen.exe <pngOutDir> <icoPath> [previewPath]
 internal static class LogoGen
 {
-    static readonly Color Plate1 = Color.FromArgb(255, 34, 41, 74);
-    static readonly Color Plate2 = Color.FromArgb(255, 17, 19, 33);
+    static readonly Color Plate1 = Color.FromArgb(255, 26, 32, 56);
+    static readonly Color Plate2 = Color.FromArgb(255, 15, 18, 30);
     static readonly Color Plate3 = Color.FromArgb(255, 7, 8, 14);
 
     static readonly Color Wing1 = Color.FromArgb(255, 255, 224, 132);
@@ -59,22 +59,22 @@ internal static class LogoGen
                 // 顶部冷光（让黑面不塌）
                 using (var sheen = new LinearGradientBrush(
                     new RectangleF(r.X, r.Y, r.Width, r.Height * 0.34f),
-                    Color.FromArgb(34, 160, 196, 255), Color.FromArgb(0, 160, 196, 255), 90f))
+                    Color.FromArgb(20, 160, 196, 255), Color.FromArgb(0, 160, 196, 255), 90f))
                     g.FillRectangle(sheen, r.X, r.Y, r.Width, r.Height * 0.34f);
 
                 float ox = r.X, oy = r.Y;
 
                 // 机身背后暖光（平滑径向，小尺寸不加）
-                if (s >= 48)
+                if (s >= 96)
                 {
-                    float cx = ox + side * 0.50f, cy = oy + side * 0.52f, rad = side * 0.46f;
+                    float cx = ox + side * 0.48f, cy = oy + side * 0.50f, rad = side * 0.40f;
                     using (var gp = new GraphicsPath())
                     {
                         gp.AddEllipse(cx - rad, cy - rad, rad * 2, rad * 2);
                         using (var pgb = new PathGradientBrush(gp))
                         {
                             pgb.CenterPoint = new PointF(cx, cy);
-                            pgb.CenterColor = Color.FromArgb(22, 255, 140, 60);
+                            pgb.CenterColor = Color.FromArgb(14, 255, 138, 58);
                             pgb.SurroundColors = new[] { Color.FromArgb(0, 255, 138, 58) };
                             g.FillPath(pgb, gp);
                         }
@@ -92,15 +92,17 @@ internal static class LogoGen
                 var tailD = P(0.440f, 0.795f);
 
                 // 机身投影
-                var shadowPath = new GraphicsPath();
-                shadowPath.AddPolygon(new[] {
-                    new PointF(nose.X + side * 0.012f, nose.Y + side * 0.016f),
-                    new PointF(tailU.X + side * 0.012f, tailU.Y + side * 0.016f),
-                    new PointF(fold.X + side * 0.012f, fold.Y + side * 0.016f),
-                    new PointF(tailD.X + side * 0.012f, tailD.Y + side * 0.016f) });
-                using (var sb = new SolidBrush(Color.FromArgb(90, 0, 0, 0)))
-                    g.FillPath(sb, shadowPath);
-                shadowPath.Dispose();
+                if (s >= 32)
+                {
+                    var shadowPath = new GraphicsPath();
+                    shadowPath.AddPolygon(new[] {
+                        new PointF(nose.X + side * 0.012f, nose.Y + side * 0.016f),
+                        new PointF(tailU.X + side * 0.012f, tailU.Y + side * 0.016f),
+                        new PointF(fold.X + side * 0.012f, fold.Y + side * 0.016f) });
+                    using (var sb = new SolidBrush(Color.FromArgb(80, 0, 0, 0)))
+                        g.FillPath(sb, shadowPath);
+                    shadowPath.Dispose();
+                }
 
                 // 机身：单面暖色渐变（干净、缩小不糊）
                 using (var plane = new GraphicsPath())
@@ -146,16 +148,24 @@ internal static class LogoGen
                 g.Restore(st);
             }
 
-            // 外框：深色描边 + 内侧冷白亮边
+            // 边缘：不再描一圈浅色边，保持纯色轮廓（避免看起来像半透明）
             using (var plate2 = RoundRect(r, side * 0.235f))
-            using (var pen = new Pen(Color.FromArgb(140, 74, 90, 138), Math.Max(0.9f, side * 0.009f)))
+            using (var pen = new Pen(Color.FromArgb(255, 28, 34, 58), Math.Max(1.0f, side * 0.006f)))
+            {
+                var stX = g.Save();
+                g.SetClip(plate2, CombineMode.Intersect);
                 g.DrawPath(pen, plate2);
+                g.Restore(stX);
+            }
 
-            float in2 = side * 0.017f;
-            var ir = new RectangleF(r.X + in2, r.Y + in2, r.Width - in2 * 2, r.Height - in2 * 2);
-            using (var ipath = RoundRect(ir, side * 0.212f))
-            using (var pen = new Pen(Color.FromArgb(58, 190, 215, 255), Math.Max(0.7f, side * 0.0055f)))
-                g.DrawPath(pen, ipath);
+            if (s >= 64)
+            {
+                float in2 = side * 0.030f;
+                var ir = new RectangleF(r.X + in2, r.Y + in2, r.Width - in2 * 2, r.Height - in2 * 2);
+                using (var ipath = RoundRect(ir, side * 0.205f))
+                using (var pen = new Pen(Color.FromArgb(48, 200, 222, 255), Math.Max(0.7f, side * 0.0045f)))
+                    g.DrawPath(pen, ipath);
+            }
         }
         return bmp;
     }
