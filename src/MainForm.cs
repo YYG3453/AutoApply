@@ -14,7 +14,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.0.12";
+        public const string Version = "1.0.13";
         public readonly string BaseDir;
         public AppCfg Cfg;
         public Engine Engine;

@@ -229,7 +229,7 @@ namespace AutoApply
                 var cvals = new List<float>();
                 var cols = new List<Color>();
                 Color[] palette = { T.Jade, T.Blue, Color.FromArgb(0xA7, 0x8B, 0xFA), T.Gold, T.Warn };
-                int topN = Math.Min(5, cityTop.Count);
+                int topN = Math.Min(3, cityTop.Count);
                 for (int i = 0; i < topN; i++) { names.Add(cityTop[i].Key); cvals.Add(cityTop[i].Value); cols.Add(palette[i % palette.Length]); }
                 int restv = 0;
                 for (int i = topN; i < cityTop.Count; i++) restv += cityTop[i].Value;
@@ -248,7 +248,7 @@ namespace AutoApply
                 // 图例：两列布局
                 float ly2 = compact ? cityCard.Y + 42 : _donutC.Y + _donutR + 12;
                 float colW = compact ? (cityCard.Width - 128) : (cityCard.Width - 40) / 2f;
-                int maxRows = compact ? 4 : Math.Min(6, names.Count);
+                int maxRows = 4;
                 float rowH2 = compact ? 21f : Math.Max(16f, Math.Min(21f, (cityCard.Bottom - 16f - ly2) / Math.Max(1f, (maxRows + 1) / 2f)));
                 for (int i = 0; i < names.Count && i < maxRows; i++)
                 {
