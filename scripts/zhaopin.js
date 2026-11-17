@@ -8,6 +8,21 @@ const path = require('path');
 const PORT = process.env.CDP_PORT ? Number(process.env.CDP_PORT) : 9333;
 const ROOT = __dirname;
 const STATE_FILE = path.join(ROOT, 'state-zp.jsonl');
+const SCORE = require(path.join(__dirname, 'score.js'));
+const SKIP_FILE = path.join(ROOT, 'state-skip.jsonl');
+let filtered = 0;
+function skipSeenIds() {
+  const s = new Set();
+  try {
+    for (const line of fs.readFileSync(SKIP_FILE, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try { const o = JSON.parse(line); if (o.id) s.add(o.id); if (o.key) s.add(o.key); } catch {}
+    }
+  } catch {}
+  return s;
+}
+function skipRecord(o) { try { fs.appendFileSync(SKIP_FILE, JSON.stringify(o) + '\n'); } catch {} }
+const skipSeen = skipSeenIds();
 const LOG_FILE = path.join(ROOT, 'run-zp.log');
 
 function log(...a) {
@@ -94,6 +109,7 @@ const SCAN = `(() => {
     const tags = [...c.querySelectorAll('.job-card__skill-tag')].map((x) => x.textContent.trim());
     out.push({
       i,
+      title: ((c.innerText || '').split('\\n').map((s) => s.trim()).filter(Boolean)[0] || ''),
       company,
       salary: ((c.querySelector('.job-card__salary') || {}).textContent || '').trim(),
       loc: ((c.querySelector('.job-card__location') || {}).textContent || '').replace(/\\s+/g, ' ').trim(),
@@ -212,6 +228,11 @@ async function main() {
         if (!city) { skipped++; continue; }
         const key = (j.company + '|' + j.salary + '|' + j.loc).slice(0, 140);
         if (seen.has(key)) { skipped++; continue; }
+        const sc = SCORE.evaluate({ title: j.title, company: j.company, kw });
+        if (!sc.pass) {
+          if (!skipSeen.has(key)) { skipSeen.add(key); filtered++; skipRecord({ site: 'zp', key, title: j.title, company: j.company, salary: j.salary, loc: j.loc, city, kw, score: sc.score, reason: sc.reason, ts: new Date().toISOString() }); }
+          skipped++; log('FILTER ' + sc.score + ' ' + sc.reason + ' | ' + j.company + ' ' + j.loc + ' ' + (j.title || '')); continue;
+        }
         if (j.applied) { seen.add(key); skipped++; continue; }
         if (dry) { log('DRY would apply', j.company, '@', city, j.salary); seen.add(key); continue; }
         let r;

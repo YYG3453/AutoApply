@@ -26,6 +26,24 @@ namespace AutoApply
         public string DayText { get { return HasTs ? Ts.ToString("yyyy-MM-dd") : ""; } }
     }
 
+    /// <summary>一条被规则拦下来的记录（来自 state-skip.jsonl，由 scripts\score.js 的调用方写入）。</summary>
+    internal class SkipRec
+    {
+        public string SiteKey = "";
+        public string SiteName = "";
+        public string Title = "";
+        public string Company = "";
+        public string Loc = "";
+        public string Kw = "";
+        public int Score;
+        public string Reason = "";
+        public DateTime Ts;
+        public bool HasTs = true;
+
+        public string TimeText { get { return HasTs ? Ts.ToString("MM-dd HH:mm") : "—"; } }
+        public string DayText { get { return HasTs ? Ts.ToString("yyyy-MM-dd") : ""; } }
+    }
+
     /// <summary>
     /// 四个 state-*.jsonl 的读取层：一次解析 → 内存索引 → 页面只查索引。
     /// 为什么不用数据库：现在 1k 行量级，一行式解析 + 内存索引已经够快；
@@ -45,6 +63,11 @@ namespace AutoApply
         public string LastDay = "";
         /// <summary>解析失败的行数（坏数据不该让整页崩）。</summary>
         public int BadLines;
+
+        /// <summary>被规则过滤掉的岗位（state-skip.jsonl），新的在前。</summary>
+        public readonly List<SkipRec> Skips = new List<SkipRec>();
+        public int SkippedToday, SkippedTotal;
+        public Dictionary<string, int> SkipByReason = new Dictionary<string, int>();
 
         public int CountToday(string key) { int v; return TodayBySite.TryGetValue(key, out v) ? v : 0; }
         public int CountTotal(string key) { int v; return TotalBySite.TryGetValue(key, out v) ? v : 0; }
@@ -111,9 +134,75 @@ namespace AutoApply
                 st.Total += total;
             }
 
+            // 被规则过滤的记录（可能不存在，那时 Skips 为空）
+            st.LoadSkips(scriptDir, day);
+
             // 新的在前；没有时间戳的沉到最后
             st.All.Sort(delegate (JobRec a, JobRec b) { return b.Ts.CompareTo(a.Ts); });
+            st.Skips.Sort(delegate (SkipRec a, SkipRec b) { return b.Ts.CompareTo(a.Ts); });
             return st;
+        }
+
+        private static string SiteNameOf(string key)
+        {
+            for (int i = 0; i < Files.Length; i++) if (Files[i][1] == key) return Files[i][2];
+            return key;
+        }
+
+        private void LoadSkips(string scriptDir, string day)
+        {
+            var path = Path.Combine(scriptDir, "state-skip.jsonl");
+            if (!File.Exists(path)) return;
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var sr = new StreamReader(fs, Encoding.UTF8))
+                {
+                    string line;
+                    while ((line = sr.ReadLine()) != null)
+                    {
+                        line = line.Trim();
+                        if (line.Length < 2 || line[0] != '{') { if (line.Length > 0) BadLines++; continue; }
+                        try
+                        {
+                            var r = new SkipRec();
+                            r.SiteKey = Str(line, "site");
+                            r.SiteName = SiteNameOf(r.SiteKey.Length > 0 ? r.SiteKey : "");
+                            r.Title = Str(line, "title");
+                            r.Company = Str(line, "company");
+                            r.Loc = Str(line, "loc");
+                            if (r.Loc.Length == 0) r.Loc = Str(line, "area");
+                            r.Kw = Str(line, "kw");
+                            r.Reason = Str(line, "reason");
+                            int.TryParse(Str(line, "score"), out r.Score);
+                            var ts = Str(line, "ts");
+                            if (ts.Length >= 10)
+                            {
+                                DateTimeOffset dto;
+                                if (DateTimeOffset.TryParse(ts, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out dto)) r.Ts = dto.LocalDateTime;
+                                else
+                                {
+                                    DateTime dt;
+                                    if (DateTime.TryParse(ts.Substring(0, Math.Min(19, ts.Length)), out dt)) r.Ts = dt;
+                                    else r.HasTs = false;
+                                }
+                            }
+                            else r.HasTs = false;
+
+                            Skips.Add(r);
+                            SkippedTotal++;
+                            // 原因归并：去掉冒号后面的具体词，便于做 Top 统计
+                            var rk = r.Reason;
+                            int c = rk.IndexOf('：');
+                            if (c > 0) rk = rk.Substring(0, c);
+                            int v; SkipByReason.TryGetValue(rk, out v); SkipByReason[rk] = v + 1;
+                            if (r.HasTs && r.Ts.ToString("yyyy-MM-dd") == day) SkippedToday++;
+                        }
+                        catch { BadLines++; }
+                    }
+                }
+            }
+            catch { }
         }
 
         private static JobRec Parse(string line, string siteKey, string siteName)

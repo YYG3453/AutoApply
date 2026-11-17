@@ -30,7 +30,7 @@ Copy-Item $nodeSrc (Join-Path $dist "node\node.exe")
 Write-Host "== copy scripts"
 $sd = Join-Path $dist "scripts"
 New-Item -ItemType Directory $sd | Out-Null
-$files = @("boss.js", "zhaopin.js", "yingjiesheng.js", "q51job.js", "cdp.js", "evalfile.js", "make-report.js", "cities.json", "cities-zp.json")
+$files = @("boss.js", "zhaopin.js", "yingjiesheng.js", "q51job.js", "cdp.js", "evalfile.js", "make-report.js", "score.js", "rules.json", "cities.json", "cities-zp.json")
 foreach ($f in $files) { Copy-Item (Join-Path $root ("scripts\" + $f)) $sd }
 
 Write-Host "== zip"

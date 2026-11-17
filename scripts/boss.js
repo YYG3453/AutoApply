@@ -9,6 +9,21 @@ const path = require('path');
 const PORT = process.env.CDP_PORT ? Number(process.env.CDP_PORT) : 9333;
 const ROOT = __dirname;
 const STATE_FILE = path.join(ROOT, 'state.jsonl');
+const SCORE = require(path.join(__dirname, 'score.js'));
+const SKIP_FILE = path.join(ROOT, 'state-skip.jsonl');
+let filtered = 0;
+function skipSeenIds() {
+  const s = new Set();
+  try {
+    for (const line of fs.readFileSync(SKIP_FILE, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try { const o = JSON.parse(line); if (o.id) s.add(o.id); if (o.key) s.add(o.key); } catch {}
+    }
+  } catch {}
+  return s;
+}
+function skipRecord(o) { try { fs.appendFileSync(SKIP_FILE, JSON.stringify(o) + '\n'); } catch {} }
+const skipSeen = skipSeenIds();
 const LOG_FILE = path.join(ROOT, 'run.log');
 
 function log(...a) {
@@ -240,6 +255,11 @@ async function main() {
           const j = jobs[i];
           if (!j.id) continue;
           if (seen.has(j.id)) { skipped++; continue; }
+          const sc = SCORE.evaluate({ title: j.title, company: j.company, kw });
+          if (!sc.pass) {
+            if (!skipSeen.has(j.id)) { skipSeen.add(j.id); filtered++; skipRecord({ site: 'boss', id: j.id, title: j.title, company: j.company, salary: j.salary, loc: j.loc, city: city.name, kw, score: sc.score, reason: sc.reason, ts: new Date().toISOString() }); }
+            skipped++; log('FILTER ' + sc.score + ' ' + sc.reason + ' | ' + j.title + ' @ ' + j.company + ' ' + city.name); continue;
+          }
           if (dry) { log('DRY would greet', j.title, j.company); seen.add(j.id); continue; }
           let r;
           try { r = await greetOne(c, i); } catch (e) { log('greet err', j.title, e.message); errs++; continue; }
