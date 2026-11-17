@@ -81,7 +81,19 @@ namespace AutoApply
                 if (exeIcon != null) Icon = exeIcon;
             }
             catch { }
-            ClientSize = new Size(T.RS(1184), T.RS(776));
+            // 默认 1184x776 逻辑像素；小屏（如 1366x768 @125%）按设备像素收进工作区
+            int dw = T.RS(1184), dh = T.RS(776);
+            try
+            {
+                var wa = Screen.PrimaryScreen.WorkingArea;
+                int aw = wa.Width - 16, ah = wa.Height - 16;
+                if (dw > aw) dw = aw;
+                if (dh > ah) dh = ah;
+                if (dw < T.RS(900)) dw = T.RS(900);
+                if (dh < T.RS(520)) dh = T.RS(520);
+            }
+            catch { }
+            ClientSize = new Size(dw, dh);
             MinimumSize = ClientSize;
             MaximumSize = ClientSize;
 
