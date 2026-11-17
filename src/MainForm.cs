@@ -14,7 +14,10 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.3.0";
+        public const string Version = "1.3.1";
+
+        /// <summary>--tray：启动后只呆在托盘里，不弹窗口（给计划任务用）。</summary>
+        public bool StartInTray;
         public readonly string BaseDir;
         public AppCfg Cfg;
         public Engine Engine;
@@ -78,6 +81,12 @@ namespace AutoApply
 
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
+            Shown += (s, e) =>
+            {
+                if (!StartInTray) return;
+                WindowState = FormWindowState.Minimized;
+                Hide();
+            };
             BackColor = T.Bg;
             Text = "AutoApply · 四平台自动投递";
             DoubleBuffered = true;
@@ -154,8 +163,11 @@ namespace AutoApply
             var argv = Environment.GetCommandLineArgs();
             var joined = string.Join(" ", argv, 1, Math.Max(0, argv.Length - 1));
             var parts = joined.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-            for (int i = 0; i + 1 < parts.Length; i++)
-                if (parts[i] == "--page" && _pages.ContainsKey(parts[i + 1])) ShowPage(parts[i + 1]);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (parts[i] == "--page" && i + 1 < parts.Length && _pages.ContainsKey(parts[i + 1])) ShowPage(parts[i + 1]);
+                if (parts[i] == "--tray") StartInTray = true;
+            }
             Program.Trace("argv=[" + joined + "] page=" + _page);
 
             var ws = new Timer { Interval = 900 };
