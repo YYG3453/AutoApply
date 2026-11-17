@@ -146,7 +146,7 @@ namespace AutoApply
                 Application.DoEvents();
                 System.Threading.Thread.Sleep(600);
                 Application.DoEvents();
-                foreach (var key in new[] { "dash", "plan", "sites", "log", "about" })
+                foreach (var key in f.Pages)
                 {
                     f.GotoPage(key);
                     Application.DoEvents();

@@ -6,7 +6,7 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path $csc)) { $csc = 'C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe' }
 
-$files = Get-ChildItem (Join-Path $root 'src\*.cs') | ForEach-Object { $_.FullName }
+$files = Get-ChildItem (Join-Path $root 'src\*.cs') -Recurse | ForEach-Object { $_.FullName }
 $refs = @(
     '/r:System.dll',
     '/r:System.Core.dll',

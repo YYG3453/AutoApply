@@ -84,7 +84,7 @@ namespace AutoApply
             ClearHits();
 
             var eng = App.Engine;
-            var st = App.Stats;
+            var st = App.Records;
             bool running = eng != null && eng.Running;
 
             // 标题
@@ -171,11 +171,11 @@ namespace AutoApply
                 float y = side.Y + 52 + i * sideGap;
                 T.Dot(g, side.X + 22, y + 8, 4f, Hue(s.Hue));
                 T.Draw(g, s.Name, Fonts.Body, T.Text, side.X + 34, y - 2);
-                T.TextR(g, App.Stats.CountToday(s.Key).ToString(), Fonts.Num, T.Text, side.Right - 20, y - 2);
+                T.TextR(g, App.Records.CountToday(s.Key).ToString(), Fonts.Num, T.Text, side.Right - 20, y - 2);
                 // 细进度条：以 max 为刻度
                 var bar = new RectangleF(side.X + 20, y + 26, side.Width - 40, 3);
                 T.FillRound(g, bar, 1.5f, T.BtnHover2);
-                float pct = s.Max > 0 ? Math.Min(1f, App.Stats.CountToday(s.Key) / (float)Math.Max(1, s.Max / 4)) : 0f;
+                float pct = s.Max > 0 ? Math.Min(1f, App.Records.CountToday(s.Key) / (float)Math.Max(1, s.Max / 4)) : 0f;
                 if (pct > 0.02f)
                 {
                     var fill = new RectangleF(bar.X, bar.Y, bar.Width * pct, bar.Height);
@@ -203,7 +203,7 @@ namespace AutoApply
                 string key = d.ToString("yyyy-MM-dd");
                 dayKeys.Add(key);
                 dayLabels.Add(d.ToString("MM-dd"));
-                int v; App.Stats.ByDay.TryGetValue(key, out v);
+                int v; App.Records.ByDay.TryGetValue(key, out v);
                 dayVals.Add(v);
             }
             bool compact = bh < 172;
@@ -216,7 +216,7 @@ namespace AutoApply
             // ---- 城市环形图 ----
             T.Card(g, cityCard, 16f);
             T.Draw(g, "今日城市分布", Fonts.H2, T.Text, cityCard.X + 20, cityCard.Y + 18);
-            var cityTop = new List<KeyValuePair<string, int>>(App.Stats.TodayByCity);
+            var cityTop = new List<KeyValuePair<string, int>>(App.Records.TodayByCity);
             cityTop.Sort((a, b) => b.Value.CompareTo(a.Value));
             if (cityTop.Count == 0)
             {
@@ -242,7 +242,7 @@ namespace AutoApply
                     : new PointF(cityCard.X + cityCard.Width / 2f, cityCard.Y + 44 + _donutR + 4);
                 _donutVals = cvals.ToArray();
                 Chart.Donut(g, _donutC, _donutR, 15f, _donutVals, cols.ToArray(), _hoverCity);
-                T.TextC(g, App.Stats.Today.ToString(), compact ? Fonts.Body : Fonts.H2, T.Text, new RectangleF(_donutC.X - 70, _donutC.Y - (compact ? 11 : 16), 140, 26));
+                T.TextC(g, App.Records.Today.ToString(), compact ? Fonts.Body : Fonts.H2, T.Text, new RectangleF(_donutC.X - 70, _donutC.Y - (compact ? 11 : 16), 140, 26));
                 if (!compact) T.TextC(g, "今日合计", Fonts.Tiny, T.Text3, new RectangleF(_donutC.X - 70, _donutC.Y + 10, 140, 14));
 
                 // 图例：两列布局

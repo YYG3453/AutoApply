@@ -14,11 +14,21 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.0.13";
+        public const string Version = "1.2.0";
         public readonly string BaseDir;
         public AppCfg Cfg;
         public Engine Engine;
-        public Stats Stats;
+        public RecordStore Records;
+        /// <summary>已注册的页面 key（顺序沿用导航注册表），给 --render 之类工具用。</summary>
+        public System.Collections.Generic.List<string> Pages
+        {
+            get
+            {
+                var k = new System.Collections.Generic.List<string>();
+                foreach (var it in Nav.Items) if (_pages.ContainsKey(it.Key)) k.Add(it.Key);
+                return k;
+            }
+        }
         public event Action CfgChanged;
 
         private NavRail _rail;
@@ -48,7 +58,7 @@ namespace AutoApply
             BaseDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
             Cfg = AppCfg.Load(Path.Combine(BaseDir, "config.json"));
             Engine = new Engine(BaseDir) { Cfg = Cfg };
-            Stats = Stats.Load(Engine.ScriptDir);
+            Records = RecordStore.Load(Engine.ScriptDir);
 
             // 主题：--theme day|night 优先（渲染截图用），否则用配置里保存的
             var rawArgs = Environment.GetCommandLineArgs();
@@ -101,13 +111,14 @@ namespace AutoApply
             _rail.Picked += ShowPage;
             Controls.Add(_rail);
 
-            _dash = new DashboardPage(this);
-            _plan = new PlanPage(this);
-            _sites = new SitesPage(this);
-            _log = new LogPage(this);
-            _about = new AboutPage(this);
-            _pages["dash"] = _dash; _pages["plan"] = _plan; _pages["sites"] = _sites; _pages["log"] = _log; _pages["about"] = _about;
+            // 页面全部由 Nav 注册表创建：加页面只改 Nav.cs
+            foreach (var item in Nav.Items) _pages[item.Key] = item.Create(this);
             foreach (var p in _pages.Values) Controls.Add(p);
+            _dash = (DashboardPage)_pages["dash"];
+            _plan = (PlanPage)_pages["plan"];
+            _sites = (SitesPage)_pages["sites"];
+            _log = (LogPage)_pages["log"];
+            _about = (AboutPage)_pages["about"];
 
             _winBtns = new WinButtons(this);
             Controls.Add(_winBtns);
@@ -116,7 +127,7 @@ namespace AutoApply
             Engine.Log += (lv, tx) => Ui(() => { _log.View.Add(lv, tx); if (lv == "ok" || lv == "warn" || lv == "err") _dash.Invalidate(); });
             Engine.StateChanged += () => Ui(() =>
             {
-                Stats = Stats.Load(Engine.ScriptDir);
+                Records = RecordStore.Load(Engine.ScriptDir);
                 _dash.Invalidate();
                 _plan.Invalidate();
                 UpdateTray();
@@ -136,7 +147,7 @@ namespace AutoApply
             _pulse.Tick += (s, e) => { _pulseT += 0.16f; if (!Engine.Running) { _pulse.Stop(); } _dash.Invalidate(new Rectangle(T.RS(32), T.RS(200), T.RS(700), T.RS(60))); };
 
             BuildTray();
-            ShowPage("dash");
+            ShowPage(Nav.DefaultKey);
             _ready = true;
             LayoutAll();
 
@@ -148,7 +159,7 @@ namespace AutoApply
             Program.Trace("argv=[" + joined + "] page=" + _page);
 
             var ws = new Timer { Interval = 900 };
-            ws.Tick += (s, e) => { ws.Stop(); Stats = Stats.Load(Engine.ScriptDir); _dash.Invalidate(); };
+            ws.Tick += (s, e) => { ws.Stop(); Records = RecordStore.Load(Engine.ScriptDir); _dash.Invalidate(); };
             ws.Start();
 
             // 启动后台收编旧流程（禁用旧计划任务 / 合并历史记录 / 迁移登录态）
@@ -194,7 +205,7 @@ namespace AutoApply
         {
             Ui(() =>
             {
-                Stats = Stats.Load(Engine.ScriptDir);
+                Records = RecordStore.Load(Engine.ScriptDir);
                 _dash.Invalidate();
                 _plan.Invalidate();
             });
@@ -302,7 +313,7 @@ namespace AutoApply
             var sites = new List<SiteCfg>();
             foreach (var s in Cfg.Sites) if (s.Enabled) sites.Add(s);
             if (sites.Count == 0) { Toast("四个平台都被停用了，先去「平台与关键词」打开一个"); return; }
-            Stats = Stats.Load(Engine.ScriptDir);
+            Records = RecordStore.Load(Engine.ScriptDir);
             Engine.StartRun(sites, "手动运行");
             ShowPage("log");
             _log.View.Add("sys", "=== 手动开始一轮投递");
@@ -335,7 +346,7 @@ namespace AutoApply
                 var sites = new List<SiteCfg>();
                 foreach (var s in Cfg.Sites) if (s.Enabled) sites.Add(s);
                 if (sites.Count == 0) return;
-                Stats = Stats.Load(Engine.ScriptDir);
+                Records = RecordStore.Load(Engine.ScriptDir);
                 Engine.StartRun(sites, w.Name + " " + w.Range);
                 ShowPage("log");
                 _log.View.Add("sys", "=== " + w.Name + " 自动开始");

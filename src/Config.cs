@@ -27,15 +27,27 @@ namespace AutoApply
         public bool Enabled = true;
         public int StartHour = 9, StartMin = 30;
         public int EndHour = 10, EndMin = 30;
+        /// <summary>运行时状态，不落盘。</summary>
+        [ScriptIgnore]
         public bool RanToday_ = false;
 
+        // 下面三个是计算属性，只给界面用，绝不写进 config.json
+        [ScriptIgnore]
         public int StartMins { get { return StartHour * 60 + StartMin; } }
+        [ScriptIgnore]
         public int EndMins { get { return EndHour * 60 + EndMin; } }
+        [ScriptIgnore]
         public string Range { get { return string.Format("{0:00}:{1:00} – {2:00}:{3:00}", StartHour, StartMin, EndHour, EndMin); } }
     }
 
     internal class AppCfg
     {
+        /// <summary>
+        /// 配置契约版本。改字段含义/结构时 +1，并在 Load 里写迁移分支。
+        /// 2：计算属性移出落盘、加原子写与 .bak 备份。
+        /// </summary>
+        public int SchemaVersion = 2;
+
         public List<SiteCfg> Sites = new List<SiteCfg>();
         public List<WindowCfg> Windows = new List<WindowCfg>();
         public List<string> Cities = new List<string>();
@@ -77,135 +89,61 @@ namespace AutoApply
         // ---------- 持久化 ----------
         public static AppCfg Load(string path)
         {
-            try
+            var c = TryRead(path);
+            if (c == null) c = TryRead(path + ".bak");     // 主文件坏了就退回备份
+            if (c != null)
             {
-                if (File.Exists(path))
-                {
-                    var json = File.ReadAllText(path, Encoding.UTF8);
-                    var ser = new JavaScriptSerializer();
-                    var c = ser.Deserialize<AppCfg>(json);
-                    if (c != null && c.Sites != null && c.Sites.Count > 0)
-                    {
-                        if (c.Windows == null || c.Windows.Count == 0) c.Windows = Default().Windows;
-                        if (c.Cities == null) c.Cities = new List<string>();
-                        if (c.Keywords == null || c.Keywords.Count == 0) c.Keywords = Default().Keywords;
-                        return c;
-                    }
-                }
+                if (c.Windows == null || c.Windows.Count == 0) c.Windows = Default().Windows;
+                if (c.Cities == null) c.Cities = new List<string>();
+                if (c.Keywords == null || c.Keywords.Count == 0) c.Keywords = Default().Keywords;
+                return c;
             }
-            catch { }
             var d = Default();
             d.Save(path);
             return d;
         }
 
+        private static AppCfg TryRead(string path)
+        {
+            try
+            {
+                if (!File.Exists(path) || new FileInfo(path).Length < 2) return null;
+                var json = File.ReadAllText(path, Encoding.UTF8);
+                var c = new JavaScriptSerializer().Deserialize<AppCfg>(json);
+                if (c != null && c.Sites != null && c.Sites.Count > 0) return c;
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>
+        /// 原子写：先写 .tmp，再整体替换，旧文件留成 .bak。
+        /// 这样写到一半断电/崩溃，配置文件不会变成半截垃圾。
+        /// </summary>
         public void Save(string path)
         {
+            var json = new JavaScriptSerializer().Serialize(this);
+            var dir = Path.GetDirectoryName(path);
+            var tmp = path + ".tmp";
+            var bak = path + ".bak";
             try
             {
-                var ser = new JavaScriptSerializer();
-                var dir = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                File.WriteAllText(path, ser.Serialize(this), new UTF8Encoding(false));
-            }
-            catch { }
-        }
-    }
-
-    /// <summary>投递统计：直接读四个 state-*.jsonl 的行数与今日条数，不额外维护状态。</summary>
-    internal class Stats
-    {
-        public Dictionary<string, int> TodayBySite = new Dictionary<string, int>();
-        public Dictionary<string, int> TotalBySite = new Dictionary<string, int>();
-        public Dictionary<string, int> TodayByCity = new Dictionary<string, int>();
-        /// <summary>按天统计（yyyy-MM-dd → 条数），四站合计，用于趋势图。</summary>
-        public Dictionary<string, int> ByDay = new Dictionary<string, int>();
-        public int Today, Total;
-        public string LastDay = "";
-
-        public int CountToday(string key) { int v; return TodayBySite.TryGetValue(key, out v) ? v : 0; }
-        public int CountTotal(string key) { int v; return TotalBySite.TryGetValue(key, out v) ? v : 0; }
-
-        private static string TodayStr() { return DateTime.Now.ToString("yyyy-MM-dd"); }
-
-        /// <summary>四个 state 文件：state.jsonl + state-zp.jsonl + state-yjs.jsonl + state-q51.jsonl。</summary>
-        public static Stats Load(string scriptDir)
-        {
-            var s = new Stats();
-            var files = new[] { "state.jsonl", "state-zp.jsonl", "state-yjs.jsonl", "state-q51.jsonl" };
-            var keys = new[] { "boss", "zp", "yjs", "q51" };
-            var day = TodayStr();
-            for (int i = 0; i < files.Length; i++)
-            {
-                int today = 0, total = 0;
-                var p = Path.Combine(scriptDir, files[i]);
-                if (File.Exists(p))
+                using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var sw = new StreamWriter(fs, new UTF8Encoding(false)))
                 {
-                    try
-                    {
-                        using (var fs = new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                        using (var sr = new StreamReader(fs, Encoding.UTF8))
-                        {
-                            string line;
-                            while ((line = sr.ReadLine()) != null)
-                            {
-                                if (line.Trim().Length == 0) continue;
-                                total++;
-                                if (line.IndexOf(day, StringComparison.Ordinal) >= 0) today++;
-                                var t = Grab(line, "ts");
-                                if (t.Length >= 10)
-                                {
-                                    DateTimeOffset dto;
-                                    string d = DateTimeOffset.TryParse(t, out dto) ? dto.LocalDateTime.ToString("yyyy-MM-dd") : t.Substring(0, 10);
-                                    int dv; s.ByDay.TryGetValue(d, out dv);
-                                    s.ByDay[d] = dv + 1;
-                                }
-                            }
-                        }
-                    }
-                    catch { }
+                    sw.Write(json);
+                    sw.Flush();
+                    fs.Flush(true);                     // 落盘后再替换
                 }
-                s.TodayBySite[keys[i]] = today;
-                s.TotalBySite[keys[i]] = total;
-                s.Today += today;
-                s.Total += total;
+                if (File.Exists(path)) File.Replace(tmp, path, bak, true);
+                else File.Move(tmp, path);
             }
-            s.LastDay = day;
-
-            // 今日按城市（只统计 BOSS 的 state.jsonl 里的 city 字段，够用且轻量）
-            try
+            catch
             {
-                var p = Path.Combine(scriptDir, "state.jsonl");
-                if (File.Exists(p))
-                {
-                    using (var fs = new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                    using (var sr = new StreamReader(fs, Encoding.UTF8))
-                    {
-                        string line;
-                        while ((line = sr.ReadLine()) != null)
-                        {
-                            if (line.IndexOf(day, StringComparison.Ordinal) < 0) continue;
-                            var city = Grab(line, "city");
-                            if (city.Length == 0) continue;
-                            int v; s.TodayByCity.TryGetValue(city, out v);
-                            s.TodayByCity[city] = v + 1;
-                        }
-                    }
-                }
+                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+                try { File.WriteAllText(path, json, new UTF8Encoding(false)); } catch { }
             }
-            catch { }
-            return s;
-        }
-
-        private static string Grab(string line, string field)
-        {
-            var k = "\"" + field + "\":\"";
-            var i = line.IndexOf(k, StringComparison.Ordinal);
-            if (i < 0) return "";
-            i += k.Length;
-            var j = line.IndexOf('"', i);
-            if (j < 0) return "";
-            return line.Substring(i, j - i);
         }
     }
 }

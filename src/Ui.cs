@@ -187,14 +187,7 @@ namespace AutoApply
     {
         public string Selected = "dash";
         public event Action<string> Picked;
-        private readonly string[][] _items = new string[][]
-        {
-            new[] { "dash", "仪表盘" },
-            new[] { "plan", "投递计划" },
-            new[] { "sites", "平台与关键词" },
-            new[] { "log", "运行日志" },
-            new[] { "about", "关于" },
-        };
+        // 菜单项来自 Nav 注册表，不再硬编码：加页面只改 Nav.cs 一处
         private readonly Dictionary<string, float> _h = new Dictionary<string, float>();
         private string _hover = "";
         private readonly Timer _t;
@@ -220,7 +213,27 @@ namespace AutoApply
             };
         }
 
-        private RectangleF ItemRect(int i) { return new RectangleF(14, 96 + i * 52, Width - 28, 46); }
+        /// <summary>按注册表算菜单项位置：每个分组先占 24px 标题行，菜单项 44 高、间距 6。</summary>
+        private RectangleF ItemRect(int i)
+        {
+            float y = 96f;
+            string group = "";
+            for (int k = 0; k <= i && k < Nav.Items.Count; k++)
+            {
+                if (Nav.Items[k].Group != group) { group = Nav.Items[k].Group; y += 24f; }
+                if (k == i) return new RectangleF(14, y, Width - 28, 44);
+                y += 50f;
+            }
+            return RectangleF.Empty;
+        }
+
+        private string GroupHeaderAt(int i)
+        {
+            if (i < 0 || i >= Nav.Items.Count) return "";
+            var g = Nav.Items[i].Group;
+            if (i == 0) return g;
+            return Nav.Items[i - 1].Group == g ? "" : g;    // 同组只画一次
+        }
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -238,22 +251,27 @@ namespace AutoApply
             T.Draw(g, "APPLY", T.Num(17, FontStyle.Bold), T.Alpha(T.Gold, 220), 56, 42);
             T.Draw(g, "v1.0 · 桌面版", T.F(11.5f), T.Text3, 56, 65);
 
-            for (int i = 0; i < _items.Length; i++)
+            for (int i = 0; i < Nav.Items.Count; i++)
             {
+                var item = Nav.Items[i];
                 var r = ItemRect(i);
-                float hv = _h.ContainsKey(_items[i][0]) ? _h[_items[i][0]] : 0f;
-                bool sel = Selected == _items[i][0];
+                var head = GroupHeaderAt(i);
+                if (head.Length > 0)
+                    T.Draw(g, head, T.F(10.5f), T.Text3, 20, r.Y - 20);
+
+                float hv = _h.ContainsKey(item.Key) ? _h[item.Key] : 0f;
+                bool sel = Selected == item.Key;
                 if (sel)
                 {
                     T.FillRound(g, r, 10f, T.RailSel);
-                    T.FillRound(g, new RectangleF(r.X + 4, r.Y + 12, 3, 22), 1.5f, T.Jade);
+                    T.FillRound(g, new RectangleF(r.X + 4, r.Y + 11, 3, 22), 1.5f, T.Jade);
                 }
                 else if (hv > 0.01f)
                 {
                     T.FillRound(g, r, 10f, T.Alpha(T.HoverSoft, (int)(hv * 255)));
                 }
                 var col = sel ? T.Text : T.Mix(T.Text2, T.Text, hv);
-                T.Draw(g, _items[i][1], T.F(15f, sel ? FontStyle.Bold : FontStyle.Regular), col, r.X + 18, r.Y + 12);
+                T.Draw(g, item.Title, T.F(15f, sel ? FontStyle.Bold : FontStyle.Regular), col, r.X + 18, r.Y + 11);
             }
 
             // 底部：状态
@@ -266,11 +284,11 @@ namespace AutoApply
         {
             base.OnMouseMove(e);
             string hit = "";
-            for (int i = 0; i < _items.Length; i++) if (ItemRect(i).Contains(e.Location)) hit = _items[i][0];
+            for (int i = 0; i < Nav.Items.Count; i++) if (ItemRect(i).Contains(e.Location)) hit = Nav.Items[i].Key;
             if (hit != _hover)
             {
                 _hover = hit;
-                foreach (var it in _items) if (!_h.ContainsKey(it[0])) _h[it[0]] = 0f;
+                foreach (var it in Nav.Items) if (!_h.ContainsKey(it.Key)) _h[it.Key] = 0f;
                 Cursor = hit.Length > 0 ? Cursors.Hand : Cursors.Default;
                 if (!_t.Enabled) _t.Start();
             }
@@ -309,11 +327,11 @@ namespace AutoApply
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
-            for (int i = 0; i < _items.Length; i++)
+            for (int i = 0; i < Nav.Items.Count; i++)
             {
                 if (ItemRect(i).Contains(e.Location))
                 {
-                    Selected = _items[i][0];
+                    Selected = Nav.Items[i].Key;
                     if (!_t.Enabled) _t.Start();
                     var h = Picked; if (h != null) h(Selected);
                     Invalidate();
