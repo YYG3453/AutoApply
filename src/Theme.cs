@@ -166,15 +166,31 @@ namespace AutoApply
         }
 
         /// <summary>夜晚模式的三套备选配色（0 石墨灰 / 1 墨蓝夜 / 2 暖夜）。</summary>
-        public static int NightStyle = 0;
+        public static int NightStyle = 4;
 
         /// <summary>在基础夜色调色板之上叠加一套"更护眼"的取值。</summary>
         public static void ApplyNightStyle(int style)
         {
             if (!Night) return;
-            NightStyle = style < 0 || style > 3 ? 0 : style;
+            NightStyle = style < 0 || style > 4 ? 4 : style;
             switch (NightStyle)
             {
+                case 4: // 用户指定：右侧底 #031422 / 左侧与卡片 #0F172A / 悬停 #1E293B
+                    Bg = Color.FromArgb(0x03, 0x14, 0x22); BgTop = Color.FromArgb(0x05, 0x18, 0x28); Bg2 = Color.FromArgb(0x04, 0x16, 0x26);
+                    Surface = Color.FromArgb(0x0F, 0x17, 0x2A); SurfaceHi = Color.FromArgb(0x1E, 0x29, 0x3B);
+                    Line = Color.FromArgb(0x1E, 0x29, 0x3B); LineSoft = Color.FromArgb(0x16, 0x21, 0x36);
+                    RailTop = Color.FromArgb(0x0F, 0x17, 0x2A); RailSel = Color.FromArgb(0x1E, 0x29, 0x3B);
+                    Panel2 = Color.FromArgb(0x12, 0x1C, 0x30); Panel3 = Color.FromArgb(0x1E, 0x29, 0x3B); Panel4 = Color.FromArgb(0x15, 0x1F, 0x33);
+                    Field = Color.FromArgb(0x16, 0x21, 0x36); Console = Color.FromArgb(0x06, 0x11, 0x1E);
+                    HoverSoft = Color.FromArgb(0x1E, 0x29, 0x3B); HoverSoftHi = Color.FromArgb(0x28, 0x36, 0x4B); HoverSoft2 = Color.FromArgb(0x26, 0x33, 0x47);
+                    BtnHover = Color.FromArgb(0x22, 0x2F, 0x44); BtnHover2 = Color.FromArgb(0x20, 0x2C, 0x40);
+                    Track = Color.FromArgb(0x24, 0x32, 0x47); LineHi = Color.FromArgb(0x2E, 0x3E, 0x56); Line2 = Color.FromArgb(0x22, 0x2F, 0x44); Line3 = Color.FromArgb(0x22, 0x2F, 0x44);
+                    Text = Color.FromArgb(0xE8, 0xEF, 0xF6); Text2 = Color.FromArgb(0x9A, 0xAA, 0xBD); Text3 = Color.FromArgb(0x64, 0x74, 0x8B); TextSoft = Color.FromArgb(0xCB, 0xD6, 0xE2);
+                    Jade = Color.FromArgb(0x3D, 0xDC, 0x97); JadeDim = Color.FromArgb(0x22, 0x8B, 0x62); JadeHi = Color.FromArgb(0x6B, 0xF0, 0xB6); JadeMid = Color.FromArgb(0x2C, 0xC0, 0x88);
+                    JadeLight = Color.FromArgb(0xA6, 0xF7, 0xD2); Jade2 = Color.FromArgb(0x35, 0xCE, 0x8D); JadeDeep = Color.FromArgb(0x1A, 0x7A, 0x57);
+                    JadeInk = Color.FromArgb(0x04, 0x22, 0x1A); JadeInk2 = Color.FromArgb(0x05, 0x27, 0x1D);
+                    Gold = Color.FromArgb(0xE3, 0xB7, 0x78); Warn = Color.FromArgb(0xF0, 0xA3, 0x5E); Danger = Color.FromArgb(0xF4, 0x69, 0x7F); Blue = Color.FromArgb(0x5A, 0xA0, 0xFF);
+                    break;
                 case 3: // 深海蓝：接近 EV-AI 控制台那种深蓝黑 + 亮薄荷绿的撞色
                     Bg = Color.FromArgb(0x0B, 0x11, 0x19); BgTop = Color.FromArgb(0x0E, 0x15, 0x1E); Bg2 = Color.FromArgb(0x10, 0x18, 0x22);
                     Surface = Color.FromArgb(0x12, 0x1B, 0x26); SurfaceHi = Color.FromArgb(0x17, 0x22, 0x2F);

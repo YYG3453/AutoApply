@@ -14,7 +14,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.0.11";
+        public const string Version = "1.0.12";
         public readonly string BaseDir;
         public AppCfg Cfg;
         public Engine Engine;
@@ -60,7 +60,7 @@ namespace AutoApply
                 if (rawArgs[i] == "--nightstyle")
                 {
                     int ns;
-                    if (int.TryParse(rawArgs[i + 1], out ns)) T.NightStyle = ns < 0 ? 0 : (ns > 3 ? 3 : ns);
+                    if (int.TryParse(rawArgs[i + 1], out ns)) T.NightStyle = ns < 0 ? 0 : (ns > 4 ? 4 : ns);
                 }
             }
             T.SetNight(theme != "day");

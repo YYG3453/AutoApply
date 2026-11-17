@@ -178,28 +178,104 @@ namespace AutoApply
                 }
             }
 
-            // ---- 今日城市 ----
-            var cityCard = new RectangleF(32, 520, W - 64, Math.Max(120, Hh - 520 - 20));
+            // ---- 近 7 天趋势 + 今日城市环形 ----
+            float by = 520;
+            float bh = Math.Max(200, Hh - by - 20);
+            var trendCard = new RectangleF(32, by, W - 64 - 296 - 14, bh);
+            var cityCard = new RectangleF(trendCard.Right + 14, by, 296, bh);
+
+            T.Card(g, trendCard, 16f);
+            T.Draw(g, "近 7 天投递趋势", Fonts.H2, T.Text, trendCard.X + 20, trendCard.Y + 18);
+            T.TextR(g, "四平台合计 · 悬停看当天", Fonts.Tiny, T.Text3, trendCard.Right - 20, trendCard.Y + 21);
+
+            var dayKeys = new List<string>();
+            var dayLabels = new List<string>();
+            var dayVals = new List<float>();
+            var todayD = DateTime.Now.Date;
+            for (int i = 6; i >= 0; i--)
+            {
+                var d = todayD.AddDays(-i);
+                string key = d.ToString("yyyy-MM-dd");
+                dayKeys.Add(key);
+                dayLabels.Add(d.ToString("MM-dd"));
+                int v; App.Stats.ByDay.TryGetValue(key, out v);
+                dayVals.Add(v);
+            }
+            var plot = new RectangleF(trendCard.X + 46, trendCard.Y + 62, trendCard.Width - 74, trendCard.Height - 62 - 44);
+            _trendPlot = plot;
+            _trendPts = Chart.Area(g, plot, dayVals.ToArray(), dayLabels.ToArray(), T.Jade, _hoverDay, true);
+
+            // ---- 城市环形图 ----
             T.Card(g, cityCard, 16f);
             T.Draw(g, "今日城市分布", Fonts.H2, T.Text, cityCard.X + 20, cityCard.Y + 18);
-            T.TextR(g, "hover 查看 · 来自 BOSS 记录", Fonts.Tiny, T.Text3, cityCard.Right - 20, cityCard.Y + 21);
             var cityTop = new List<KeyValuePair<string, int>>(App.Stats.TodayByCity);
             cityTop.Sort((a, b) => b.Value.CompareTo(a.Value));
             if (cityTop.Count == 0)
-                T.Draw(g, "今天还没有记录", Fonts.Small, T.Text3, cityCard.X + 20, cityCard.Y + 58);
-            int maxV = 1;
-            foreach (var kv in cityTop) if (kv.Value > maxV) maxV = kv.Value;
-            for (int i = 0; i < Math.Min(9, cityTop.Count); i++)
             {
-                float bw = (cityCard.Width - 40) / 9f;
-                float x = cityCard.X + 20 + i * bw;
-                float hBar = Math.Max(4, (cityCard.Height - 92) * (cityTop[i].Value / (float)maxV));
-                var br = new RectangleF(x + 6, cityCard.Bottom - 34 - hBar, bw - 18, hBar);
-                using (var lg = new LinearGradientBrush(new RectangleF(br.X, br.Y, Math.Max(2, br.Width), Math.Max(2, br.Height)), T.Alpha(T.Jade, 200), T.Alpha(T.JadeDim, 90), 90f))
-                    T.FillRound(g, br, 4f, lg);
-                T.TextC(g, cityTop[i].Value.ToString(), Fonts.Tiny, T.Text2, new RectangleF(x, cityCard.Bottom - 60, bw, 16));
-                T.TextC(g, cityTop[i].Key, Fonts.Tiny, T.Text3, new RectangleF(x, cityCard.Bottom - 26, bw, 16));
+                _donutVals = new float[0];
+                T.Draw(g, "今天还没有记录", Fonts.Small, T.Text3, cityCard.X + 20, cityCard.Y + 66);
             }
+            else
+            {
+                var names = new List<string>();
+                var cvals = new List<float>();
+                var cols = new List<Color>();
+                Color[] palette = { T.Jade, T.Blue, Color.FromArgb(0xA7, 0x8B, 0xFA), T.Gold, T.Warn };
+                int topN = Math.Min(5, cityTop.Count);
+                for (int i = 0; i < topN; i++) { names.Add(cityTop[i].Key); cvals.Add(cityTop[i].Value); cols.Add(palette[i % palette.Length]); }
+                int restv = 0;
+                for (int i = topN; i < cityTop.Count; i++) restv += cityTop[i].Value;
+                if (restv > 0) { names.Add("其他"); cvals.Add(restv); cols.Add(T.Text3); }
+
+                _donutC = new PointF(cityCard.X + cityCard.Width / 2f, cityCard.Y + 88);
+                _donutR = Math.Min(cityCard.Width * 0.22f, 56f);
+                _donutVals = cvals.ToArray();
+                Chart.Donut(g, _donutC, _donutR, 15f, _donutVals, cols.ToArray(), _hoverCity);
+                T.TextC(g, App.Stats.Today.ToString(), Fonts.H2, T.Text, new RectangleF(_donutC.X - 70, _donutC.Y - 16, 140, 26));
+                T.TextC(g, "今日合计", Fonts.Tiny, T.Text3, new RectangleF(_donutC.X - 70, _donutC.Y + 10, 140, 14));
+
+                // 图例：两列布局
+                float ly2 = _donutC.Y + _donutR + 13;
+                float colW = (cityCard.Width - 40) / 2f;
+                for (int i = 0; i < names.Count && i < 6; i++)
+                {
+                    int col = i % 2, row = i / 2;
+                    float lx = cityCard.X + 20 + col * colW;
+                    float ry = ly2 + row * 22;
+                    bool hv = i == _hoverCity;
+                    T.Dot(g, lx + 5, ry + 8, 4f, cols[i]);
+                    T.Draw(g, names[i], Fonts.Tiny, hv ? T.Text : T.Text2, lx + 15, ry);
+                    T.TextR(g, cvals[i].ToString(), Fonts.Tiny, hv ? T.Text : T.Text3, lx + colW - 6, ry);
+                }
+            }
+        }
+
+        private PointF[] _trendPts = new PointF[0];
+        private RectangleF _trendPlot;
+        private int _hoverDay = -1;
+        private PointF _donutC;
+        private float _donutR;
+        private float[] _donutVals = new float[0];
+        private int _hoverCity = -1;
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            var p = T.LP(e.Location);
+            int hd = _trendPts.Length > 0 ? Chart.HitArea(_trendPts, p, 28f) : -1;
+            int hc = _donutVals.Length > 0 ? Chart.HitDonut(_donutC, _donutR + 4f, 22f, _donutVals, p) : -1;
+            if (hd != _hoverDay || hc != _hoverCity)
+            {
+                _hoverDay = hd;
+                _hoverCity = hc;
+                Invalidate();
+            }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            if (_hoverDay != -1 || _hoverCity != -1) { _hoverDay = -1; _hoverCity = -1; Invalidate(); }
         }
 
         private void DrawPrimary(Graphics g, RectangleF r, string text, string id, bool enabled)

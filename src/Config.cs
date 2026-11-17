@@ -47,7 +47,7 @@ namespace AutoApply
         public bool MinimizeToTray = true;
         /// <summary>"night" = 夜晚模式（默认），"day" = 日间模式。</summary>
         public string Theme = "night";
-        public int NightStyle = 3;
+        public int NightStyle = 4;
         /// <summary>旧版 boss-apply 目录（相对程序目录或绝对路径），用于收编计划任务/历史记录/登录态。</summary>
         public string LegacyDir = "..\\_automation\\boss-apply";
         /// <summary>启动时自动禁用旧的 BOSSTouDi-* 计划任务（避免和本程序重复投递）。</summary>
@@ -118,6 +118,8 @@ namespace AutoApply
         public Dictionary<string, int> TodayBySite = new Dictionary<string, int>();
         public Dictionary<string, int> TotalBySite = new Dictionary<string, int>();
         public Dictionary<string, int> TodayByCity = new Dictionary<string, int>();
+        /// <summary>按天统计（yyyy-MM-dd → 条数），四站合计，用于趋势图。</summary>
+        public Dictionary<string, int> ByDay = new Dictionary<string, int>();
         public int Today, Total;
         public string LastDay = "";
 
@@ -150,6 +152,14 @@ namespace AutoApply
                                 if (line.Trim().Length == 0) continue;
                                 total++;
                                 if (line.IndexOf(day, StringComparison.Ordinal) >= 0) today++;
+                                var t = Grab(line, "ts");
+                                if (t.Length >= 10)
+                                {
+                                    DateTimeOffset dto;
+                                    string d = DateTimeOffset.TryParse(t, out dto) ? dto.LocalDateTime.ToString("yyyy-MM-dd") : t.Substring(0, 10);
+                                    int dv; s.ByDay.TryGetValue(d, out dv);
+                                    s.ByDay[d] = dv + 1;
+                                }
                             }
                         }
                     }
