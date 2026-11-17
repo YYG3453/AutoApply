@@ -1,5 +1,5 @@
-﻿# Build the release folder + zip. ASCII only: Windows PowerShell 5.1 mangles non-ASCII without BOM.
-param([string]$Version = "1.0.5")
+# Build the release folder + zip. ASCII only: Windows PowerShell 5.1 mangles non-ASCII without BOM.
+param([string]$Version = "1.0.7")
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot

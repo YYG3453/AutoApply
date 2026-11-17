@@ -12,7 +12,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.0.5";
+        public const string Version = "1.0.7";
         public readonly string BaseDir;
         public AppCfg Cfg;
         public Engine Engine;
@@ -63,6 +63,14 @@ namespace AutoApply
             DoubleBuffered = true;
             KeyPreview = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+
+            // 窗口/任务栏图标用 exe 里内嵌的 app.ico（没有的话退回默认）
+            try
+            {
+                var exeIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                if (exeIcon != null) Icon = exeIcon;
+            }
+            catch { }
             ClientSize = new Size(T.RS(1184), T.RS(776));
             MinimumSize = ClientSize;
             MaximumSize = ClientSize;
@@ -143,6 +151,9 @@ namespace AutoApply
         /// <summary>应用主题（night / day）：换调色板 + 刷新所有子控件。</summary>
         public void ApplyTheme(string mode, bool persist)
         {
+            var st = new System.Diagnostics.StackTrace(1, false);
+            Program.Trace("ApplyTheme(" + mode + ", persist=" + persist + ") from " +
+                          (st.FrameCount > 0 ? st.GetFrame(0).GetMethod().DeclaringType.Name + "." + st.GetFrame(0).GetMethod().Name : "?"));
             T.SetNight(mode != "day");
             BackColor = T.Bg;
             ApplyThemeTo(this);
@@ -366,6 +377,13 @@ namespace AutoApply
 
         private static Icon MakeIcon()
         {
+            // 托盘图标优先用 exe 内嵌的 app.ico，保证和桌面/任务栏一致
+            try
+            {
+                var exeIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                if (exeIcon != null) return exeIcon;
+            }
+            catch { }
             using (var bmp = new Bitmap(64, 64))
             {
                 using (var g = Graphics.FromImage(bmp))

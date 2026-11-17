@@ -586,10 +586,7 @@ namespace AutoApply
             var card = new RectangleF(32, 92, W - 64, 300);
             T.Card(g, card, 18f);
             float cx = card.X + 36, cy = card.Y + 34;
-            using (var br = new LinearGradientBrush(new RectangleF(cx, cy, 46, 46), T.Jade, T.JadeDim, 45f))
-                g.FillEllipse(br, cx, cy, 46, 46);
-            T.Dot(g, cx + 23, cy + 23, 9, T.Bg);
-            using (var p = new Pen(T.Alpha(T.Gold, 120), 1.2f)) g.DrawArc(p, cx - 8, cy - 8, 62, 62, 200, 140);
+            T.Mark(g, new RectangleF(cx, cy, 46, 46));
 
             T.Draw(g, "AUTO APPLY", T.Num(20f, FontStyle.Bold), T.Text, cx + 62, cy - 2);
             T.Draw(g, "四平台自动投递 · 桌面版 v" + MainForm.Version, Fonts.Small, T.Text2, cx + 62, cy + 26);

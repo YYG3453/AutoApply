@@ -232,11 +232,7 @@ namespace AutoApply
             using (var p = new Pen(T.LineSoft, 1)) g.DrawLine(p, Width - 1, 0, Width - 1, Height);
 
             // Logo
-            float cx = 34, cy = 40;
-            using (var br = new LinearGradientBrush(new RectangleF(cx - 12, cy - 12, 24, 24), T.Jade, T.JadeDim, 45f))
-                g.FillEllipse(br, cx - 12, cy - 12, 24, 24);
-            T.Dot(g, cx, cy, 5, T.Bg);
-            using (var p = new Pen(T.Alpha(T.Gold, 120), 1)) g.DrawArc(p, cx - 17, cy - 17, 34, 34, 200, 140);
+            T.Mark(g, new RectangleF(21, 27, 26, 26));
 
             T.Draw(g, "AUTO", T.Num(15, FontStyle.Bold), T.Text, 56, 24);
             T.Draw(g, "APPLY", T.Num(15, FontStyle.Bold), T.Alpha(T.Gold, 220), 56, 42);

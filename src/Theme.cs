@@ -227,6 +227,93 @@ namespace AutoApply
             g.SmoothingMode = old;
         }
 
+        /// <summary>品牌标志：近黑圆角底板 + 余烬橙纸飞机。与 assets\app.ico 同一套几何。</summary>
+        public static void Mark(Graphics g, RectangleF box)
+        {
+            float s = Math.Min(box.Width, box.Height);
+            var r = new RectangleF(box.X + (box.Width - s) / 2f, box.Y + (box.Height - s) / 2f, s, s);
+            float rad = s * 0.235f;
+            var cTop = Color.FromArgb(0x22, 0x29, 0x4A);
+            var cMid = Color.FromArgb(0x11, 0x13, 0x21);
+            var cBot = Color.FromArgb(0x07, 0x08, 0x0E);
+
+            var old = g.SmoothingMode; g.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var plate = Round(r, rad))
+            {
+                using (var br = new LinearGradientBrush(r, cTop, cBot, 90f))
+                {
+                    var cb = new ColorBlend(3);
+                    cb.Colors = new[] { cTop, cMid, cBot };
+                    cb.Positions = new[] { 0f, 0.55f, 1f };
+                    br.InterpolationColors = cb;
+                    g.FillPath(br, plate);
+                }
+
+                var st = g.Save();
+                g.SetClip(plate, CombineMode.Intersect);
+
+                using (var sh = new LinearGradientBrush(new RectangleF(r.X, r.Y, s, s * 0.34f),
+                           Color.FromArgb(38, 0xA0, 0xC4, 0xFF), Color.FromArgb(0, 0xA0, 0xC4, 0xFF), 90f))
+                    g.FillRectangle(sh, r.X, r.Y, s, s * 0.34f);
+
+                if (s >= 18f)
+                    using (var gp = new GraphicsPath())
+                    {
+                        float cx = r.X + s * 0.50f, cy = r.Y + s * 0.52f, rad2 = s * 0.46f;
+                        gp.AddEllipse(cx - rad2, cy - rad2, rad2 * 2, rad2 * 2);
+                        using (var pgb = new PathGradientBrush(gp))
+                        {
+                            pgb.CenterPoint = new PointF(cx, cy);
+                            pgb.CenterColor = Color.FromArgb(34, 0xFF, 0x8C, 0x3C);
+                            pgb.SurroundColors = new[] { Color.FromArgb(0, 0xFF, 0x8C, 0x3C) };
+                            g.FillPath(pgb, gp);
+                        }
+                    }
+
+                if (s >= 16f)
+                {
+                    float[][] segs = new float[][] {
+                        new float[] { 0.360f, 0.300f, 0.150f },
+                        new float[] { 0.462f, 0.424f, 0.118f },
+                        new float[] { 0.560f, 0.552f, 0.078f }
+                    };
+                    foreach (var seg in segs)
+                    {
+                        using (var pen = new Pen(Color.FromArgb(206, 0xFF, 0xB0, 0x68), Math.Max(0.9f, s * 0.022f)))
+                        {
+                            pen.StartCap = LineCap.Round; pen.EndCap = LineCap.Round;
+                            float x1 = r.X + s * 0.085f;
+                            g.DrawLine(pen, x1, r.Y + s * seg[0], x1 + s * seg[2], r.Y + s * seg[1]);
+                        }
+                    }
+                }
+
+                var nose = new PointF(r.X + s * 0.885f, r.Y + s * 0.145f);
+                var tailU = new PointF(r.X + s * 0.100f, r.Y + s * 0.435f);
+                var fold = new PointF(r.X + s * 0.545f, r.Y + s * 0.645f);
+                using (var plane = new GraphicsPath())
+                {
+                    plane.AddPolygon(new[] { nose, tailU, fold });
+                    var pb = plane.GetBounds();
+                    g.SetClip(plane, CombineMode.Intersect);
+                    using (var wb = new LinearGradientBrush(pb, Color.FromArgb(0xFF, 0xFF, 0xF0, 0xBE), Color.FromArgb(0xF4, 0x58, 0x54), 62f))
+                    {
+                        var cb2 = new ColorBlend(3);
+                        cb2.Colors = new[] { Color.FromArgb(0xFF, 0xFF, 0xF0, 0xBE), Color.FromArgb(0xFF, 0xA8, 0x54), Color.FromArgb(0xF4, 0x58, 0x54) };
+                        cb2.Positions = new[] { 0f, 0.52f, 1f };
+                        wb.InterpolationColors = cb2;
+                        g.FillRectangle(wb, pb);
+                    }
+                }
+
+                g.Restore(st);
+
+                using (var hair = new Pen(Color.FromArgb(140, 0x4A, 0x5A, 0x8A), Math.Max(0.7f, s * 0.009f)))
+                    g.DrawPath(hair, plate);
+            }
+            g.SmoothingMode = old;
+        }
+
         /// <summary>卡片：面层 + 1px 细边，悬停时抬一档。</summary>
         public static void Card(Graphics g, RectangleF r, float radius = 14f, bool hover = false)
         {

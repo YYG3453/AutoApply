@@ -23,3 +23,6 @@ run.err
 run.out2
 run.err2
 hit-test.txt
+*.out
+*.err
+tools/*.exe
