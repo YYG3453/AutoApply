@@ -1,4 +1,4 @@
-﻿# Build the release folder + zip. ASCII only: Windows PowerShell 5.1 mangles non-ASCII without BOM.
+# Build the release folder + zip. ASCII only: Windows PowerShell 5.1 mangles non-ASCII without BOM.
 param([string]$Version = "")
 if (-not $Version) {
     $m = Select-String -Path (Join-Path $PSScriptRoot "src\MainForm.cs") -Pattern 'Version = "([0-9.]+)"'
@@ -22,7 +22,12 @@ Write-Host "== copy app files"
 Copy-Item (Join-Path $root "AutoApply.exe") $dist
 Copy-Item (Join-Path $root "README.md") $dist
 Copy-Item (Join-Path $root "LICENSE") $dist
-Copy-Item (Join-Path $root "config.json") $dist
+# config.json 是每台机器自己的设置（城市/关键词/招呼语），不进包：
+# 包里带一份就会在升级时覆盖用户配置，而且会把作者的偏好一起发出去。
+# 首次运行由程序自己生成默认配置并走向导。
+if (Test-Path (Join-Path $root "config.json")) {
+    Write-Host "  config.json found in repo root, ignored (user data must not ship)"
+}
 if (Test-Path (Join-Path $root "docs")) { Copy-Item (Join-Path $root "docs") $dist -Recurse }
 
 Write-Host "== copy node runtime"
@@ -37,7 +42,7 @@ New-Item -ItemType Directory $sd | Out-Null
 # Base list + anything the C# side calls by name (RunNodeTool("x.js") / RunTool("evalfile.js","x.js")).
 # The auto-scan is the guard that stops us shipping a package whose script is silently missing.
 $files = @("boss.js", "zhaopin.js", "yingjiesheng.js", "q51job.js", "cdp.js", "evalfile.js", "make-report.js", "score.js",
-  "replies.js", "probe-health.js", "rules.json", "cities.json", "cities-zp.json")
+  "replies.js", "probe-health.js", "cities.json", "cities-zp.json")
 $refs = @()
 Get-ChildItem (Join-Path $root "src") -Recurse -Filter *.cs | ForEach-Object {
   $txt = Get-Content $_.FullName -Raw

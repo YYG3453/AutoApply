@@ -41,3 +41,12 @@ scripts/state.jsonl.bak
 shots1*/
 AutoApply.test.exe
 *.bak
+
+# 个人配置与运行数据：历史里已清掉，不要再提交
+config.json
+config.user.json
+*.bundle
+scripts/*.jsonl
+scripts/records-*.csv
+scripts/rules.json
+report.md
