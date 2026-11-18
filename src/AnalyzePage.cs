@@ -195,6 +195,7 @@ namespace AutoApply
             {
                 case "limit": return "平台限额";
                 case "exhausted": return "没有更多岗位";
+                case "tabdead": return "标签页挂死";
                 case "nosent": return "发不出去";
                 case "time": return "时间到";
                 case "login": return "未登录";

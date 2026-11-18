@@ -270,6 +270,28 @@ namespace AutoApply
             return false;
         }
 
+        /// <summary>
+        /// 标签页挂死时自愈：关掉这个站的标签页，再开一个新的，等它加载。
+        /// 今早（11-18）智联/前程就是因为标签页挂死被整站跳过，一行没投。
+        /// </summary>
+        private bool ReopenTab(SiteCfg s)
+        {
+            try
+            {
+                L("warn", s.Name + " 页面没响应 → 关掉标签页重开一次");
+                RunNodeTool("cdp.js", "closetab " + s.Match, 15000, s.Match);
+                Thread.Sleep(1200);
+                RunNodeTool("cdp.js", "newtab " + s.Url, 15000, s.Match);
+                Thread.Sleep(6000);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                L("warn", "重开标签页失败：" + ex.Message);
+                return false;
+            }
+        }
+
         // ---------------- 运行 ----------------
         public void StartRun(List<SiteCfg> sites, string windowName)
         {
@@ -388,9 +410,16 @@ namespace AutoApply
                     }
 
                     string reason;
-                    if (!CheckSiteReady(s, out reason))
+                    bool ready = CheckSiteReady(s, out reason);
+                    if (!ready && reason.IndexOf("页面没响应", StringComparison.Ordinal) >= 0)
                     {
-                        r.Stop = reason.IndexOf("验证码", StringComparison.Ordinal) >= 0 ? "captcha" : "login";
+                        if (ReopenTab(s) && EnsureTab(s)) ready = CheckSiteReady(s, out reason);
+                        if (ready) L("ok", s.Name + " 重开标签页后恢复正常");
+                    }
+                    if (!ready)
+                    {
+                        r.Stop = reason.IndexOf("验证码", StringComparison.Ordinal) >= 0 ? "captcha"
+                               : reason.IndexOf("页面没响应", StringComparison.Ordinal) >= 0 ? "tabdead" : "login";
                         r.Needs = reason;
                         r.Ended = DateTime.Now;
                         L("warn", "!! " + s.Name + "：" + reason + "（这一站跳过）");
