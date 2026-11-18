@@ -14,7 +14,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.8.6";
+        public const string Version = "1.8.7";
 
         /// <summary>--tray：启动后只呆在托盘里，不弹窗口（给计划任务用）。</summary>
         public bool StartInTray;
@@ -461,20 +461,31 @@ namespace AutoApply
 
         public void StartRunManual()
         {
-            Program.Trace("StartRunManual enter running=" + (Engine == null ? "null-engine" : Engine.Running.ToString()) + " sites=" + (Cfg == null ? -1 : Cfg.Sites.Count) + " enabled=" + (Cfg == null ? -1 : Cfg.Sites.FindAll(delegate (SiteCfg s) { return s.Enabled; }).Count));
-            if (Engine.Running) { Toast("已经在跑了"); return; }
-            var sites = new List<SiteCfg>();
-            foreach (var s in Cfg.Sites) if (s.Enabled) sites.Add(s);
-            if (sites.Count == 0) { Toast("四个平台都被停用了，先去「平台与关键词」打开一个"); return; }
+            var all = new List<SiteCfg>();
+            foreach (var s in Cfg.Sites) if (s.Enabled) all.Add(s);
+            StartRunSites(all, "手动运行");
+        }
+
+        /// <summary>
+        /// 指定几站开跑。开跑后引擎自己会做三件事：浏览器没开就开、
+        /// 站点标签页没有就开、没登录就等你登（不会像以前那样直接跳过）。
+        /// </summary>
+        public void StartRunSites(List<SiteCfg> sites, string windowName)
+        {
+            Program.Trace("StartRunSites enter running=" + (Engine == null ? "null-engine" : Engine.Running.ToString()) + " want=" + (sites == null ? -1 : sites.Count));
+            if (Engine.Running) { Toast("已经在跑了，先点「停止」或等这一轮结束"); return; }
+            var list = new List<SiteCfg>();
+            if (sites != null) foreach (var s in sites) if (s != null && s.Enabled) list.Add(s);
+            if (list.Count == 0) { Toast("要跑的平台都被停用了，先去「平台与关键词」打开一个"); return; }
             Records = RecordStore.Load(Engine.ScriptDir);
             try
             {
-                Engine.StartRun(sites, "手动运行");
-                Program.Trace("StartRunManual started sites=" + sites.Count + " first=" + sites[0].Key);
+                Engine.StartRun(list, windowName);
+                Program.Trace("StartRunSites started sites=" + list.Count + " first=" + list[0].Key);
             }
-            catch (Exception ex) { Program.Trace("StartRunManual throw: " + ex.GetType().Name + ": " + ex.Message); return; }
+            catch (Exception ex) { Program.Trace("StartRunSites throw: " + ex.GetType().Name + ": " + ex.Message); return; }
             ShowPage("log");
-            _log.View.Add("sys", "=== 手动开始一轮投递");
+            _log.View.Add("sys", "=== " + windowName + " · 先检查浏览器和登录状态");
         }
 
         public void StopRun()

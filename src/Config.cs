@@ -74,6 +74,8 @@ namespace AutoApply
         public int Port = 9333;
         public string ChromePath = "";
         public string ProfileDir = "browser-profile";
+        /// <summary>没登录时最多等多久（分钟）：浏览器已经打开，用户去登录 / 拖滑块，处理好自动继续。</summary>
+        public int LoginWaitMins = 4;
         public bool MinimizeToTray = true;
         /// <summary>"night" = 夜晚模式（默认），"day" = 日间模式。</summary>
         public string Theme = "night";

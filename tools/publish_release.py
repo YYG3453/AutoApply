@@ -3,9 +3,9 @@ import ctypes, json, os, sys, time, urllib.request, urllib.error
 sys.stdout.reconfigure(encoding="utf-8")
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = "YYG3453/AutoApply"
-TAG = "v1.8.6"
-ZIP = os.path.join(HERE, "..", "dist", "AutoApply-1.8.6-win-x64.zip")
-ASSET = "AutoApply-1.8.6-win-x64.zip"
+TAG = "v1.8.7"
+ZIP = os.path.join(HERE, "..", "dist", "AutoApply-1.8.7-win-x64.zip")
+ASSET = "AutoApply-1.8.7-win-x64.zip"
 
 
 class CREDENTIAL(ctypes.Structure):
@@ -99,9 +99,13 @@ assets = assets if isinstance(assets, list) else []
 for a in assets:
     print("  asset: %s %.1f MB state=%s" % (a["name"], a["size"] / 1048576.0, a["state"]))
 
-if any(a["name"] == ASSET for a in assets):
-    print("asset already there, skip upload")
-else:
+same = next((a for a in assets if a["name"] == ASSET), None)
+if same is not None:
+    # 同一个 tag 重发（改文案/修 bug 但不换版本号）：先删旧资产再传，别留下两个同名包
+    print("replacing existing asset id=%s size=%.1f MB" % (same["id"], same["size"] / 1048576.0))
+    sc, _ = call("https://api.github.com/repos/%s/releases/assets/%s" % (REPO, same["id"]), "DELETE", accept_status=(204, 200))
+    print("delete ->", sc)
+if True:
     size = os.path.getsize(ZIP)
     print("uploading %.1f MB ..." % (size / 1048576.0))
     t0 = time.time()

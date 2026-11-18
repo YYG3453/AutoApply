@@ -367,6 +367,7 @@ namespace AutoApply
                 if (res != null)
                 {
                     if (res.Stop == "notab") { right = "无标签页"; rc = T.Warn; }
+                    else if (res.Stop == "nochrome") { right = "浏览器没开"; rc = T.Warn; }
                     else if (res.Sent > 0) { right = "已投 " + res.Sent; rc = T.Jade; }
                     else if (res.Stop == "limit") { right = "撞上限"; rc = T.Warn; }
                     else if (res.Stop == "captcha") { right = "需验证"; rc = T.Warn; }
@@ -894,7 +895,12 @@ namespace AutoApply
             if (id == "open")
             {
                 string msg;
-                App.Engine.EnsureChrome(out msg);
+                bool ok = App.Engine.EnsureChrome(out msg);
+                if (ok)
+                {
+                    foreach (var s in App.Cfg.Sites) if (s.Enabled) App.Engine.EnsureTab(s);
+                    msg = "浏览器已打开，四个平台的页面也在开了；没登录的站点登录一次就会记住";
+                }
                 App.Toast(msg);
             }
         }

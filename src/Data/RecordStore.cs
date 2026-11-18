@@ -77,6 +77,7 @@ namespace AutoApply
                     case "captcha": return "验证码";
                     case "nosent": return "发不出去";
                     case "err": return "出错";
+                    case "nochrome": return "浏览器没打开";
                     default: return Stop;
                 }
             }

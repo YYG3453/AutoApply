@@ -53,6 +53,11 @@ namespace AutoApply
         private Thread _worker;
         private Process _node;
         private volatile bool _stop;
+        /// <summary>这一轮已经等过一次登录且没等到：后面几站就别再各等一遍了。</summary>
+        private bool _loginWaitFailed;
+        private static readonly object _chromeGate = new object();
+        /// <summary>我们自己起的那个浏览器进程（用来把它提到最前，别提到用户自己开的窗口上）。</summary>
+        private int _chromePid;
         private readonly object _lock = new object();
 
         public Engine(string baseDir)
@@ -96,6 +101,63 @@ namespace AutoApply
             return null;
         }
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr h);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr h, int cmd);
+
+        /// <summary>
+        /// 把浏览器窗口提到最前。等用户登录时必须做这一步：
+        /// 用户点完按钮如果浏览器在背后，他会以为程序没反应。
+        /// </summary>
+        public static void FocusBrowser() { FocusBrowser(0); }
+
+        /// <summary>pid = 0 时退回"随便哪个浏览器窗口"。</summary>
+        public static void FocusBrowser(int pid)
+        {
+            try
+            {
+                if (pid > 0)
+                {
+                    try
+                    {
+                        var p0 = Process.GetProcessById(pid);
+                        if (p0 != null && p0.MainWindowHandle != IntPtr.Zero)
+                        {
+                            ShowWindow(p0.MainWindowHandle, 9);   // SW_RESTORE
+                            SetForegroundWindow(p0.MainWindowHandle);
+                            return;
+                        }
+                    }
+                    catch { }
+                }
+                foreach (var name in new[] { "chrome", "msedge" })
+                {
+                    foreach (var p in Process.GetProcessesByName(name))
+                    {
+                        try
+                        {
+                            if (p.MainWindowHandle == IntPtr.Zero) continue;
+                            ShowWindow(p.MainWindowHandle, 9);   // SW_RESTORE
+                            SetForegroundWindow(p.MainWindowHandle);
+                            return;
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>没登录时最多等多久（秒）。配置里没写就用 4 分钟。</summary>
+        public int LoginWaitSec()
+        {
+            int m = Cfg == null ? 0 : Cfg.LoginWaitMins;
+            if (m <= 0) m = 4;
+            if (m > 15) m = 15;
+            return m * 60;
+        }
+
         // ---------------- Chrome ----------------
         public string FindChrome()
         {
@@ -133,7 +195,9 @@ namespace AutoApply
             try
             {
                 var req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + Cfg.Port + "/json/version");
-                req.Timeout = 1200; req.Proxy = null;
+                // 端口没人听就该立刻返回：以前用 1200ms，40 次轮询能白等 70 秒，
+                // 用户点完「重开」只看到"正在打开浏览器…"一直转。
+                req.Timeout = 350; req.Proxy = null;
                 using (var r = (HttpWebResponse)req.GetResponse())
                 using (var s = r.GetResponseStream())
                 using (var sr = new StreamReader(s, Encoding.UTF8)) { sr.ReadToEnd(); }
@@ -144,31 +208,59 @@ namespace AutoApply
 
         public bool EnsureChrome(out string msg)
         {
+            lock (_chromeGate) { return EnsureChromeLocked(out msg); }
+        }
+
+        private bool EnsureChromeLocked(out string msg)
+        {
             msg = "";
             if (ChromeUp()) { msg = "浏览器已就绪（端口 " + Cfg.Port + "）"; return true; }
             var chrome = FindChrome();
-            if (chrome == null) { msg = "没找到 Chrome / Edge，请在设置里手动指定浏览器路径"; return false; }
+            if (chrome == null) { msg = "没找到 Chrome / Edge，请在「平台与关键词」里手动指定浏览器路径"; return false; }
             var profile = Path.Combine(BaseDir, Cfg.ProfileDir);
             if (!Directory.Exists(profile)) Directory.CreateDirectory(profile);
+            string first = "https://www.zhipin.com/web/geek/job";
+            foreach (var s in Cfg.Sites) { if (s.Enabled) { first = s.Url; break; } }
             var args = "--user-data-dir=\"" + profile + "\" --remote-debugging-port=" + Cfg.Port +
                        " --no-first-run --no-default-browser-check --disable-component-update" +
                        " --disable-background-networking --disable-crash-reporter" +
                        " --window-size=1280,900 --window-position=180,60" +
-                       " \"https://www.zhipin.com/web/geek/job\"";
+                       " \"" + first + "\"";
+            Process proc = null;
             try
             {
                 var psi = new ProcessStartInfo(chrome, args);
                 psi.UseShellExecute = false;
                 psi.WorkingDirectory = BaseDir;
-                Process.Start(psi);
+                proc = Process.Start(psi);
             }
             catch (Exception ex) { msg = "启动浏览器失败：" + ex.Message; return false; }
-            for (int i = 0; i < 40; i++)
+            for (int i = 0; i < 60; i++)
             {
-                Thread.Sleep(500);
-                if (ChromeUp()) { msg = "已启动浏览器"; return true; }
+                Thread.Sleep(400);
+                if (ChromeUp())
+                {
+                    msg = "已打开浏览器（端口 " + Cfg.Port + "）";
+                    try { if (proc != null && !proc.HasExited) _chromePid = proc.Id; } catch { }
+                    FocusBrowser(_chromePid);
+                    return true;
+                }
+                // 已有一个 Chrome 用着同一份配置目录时，新进程会立刻退出、端口永远不会起来。
+                // 早点把原因说清楚，别让用户对着"正在打开浏览器"等半分钟。
+                if (i >= 3 && proc != null)
+                {
+                    try
+                    {
+                        if (proc.HasExited)
+                        {
+                            msg = "浏览器启动后马上退出了（多半是已经有一个用同一份配置打开的 Chrome 窗口，先把它完全关掉再试）";
+                            return false;
+                        }
+                    }
+                    catch { }
+                }
             }
-            msg = "浏览器启动超时（端口 " + Cfg.Port + " 没响应）";
+            msg = "浏览器启动超时（端口 " + Cfg.Port + " 没响应），检查一下 Chrome 是否被安全软件拦住";
             return false;
         }
 
@@ -196,7 +288,7 @@ namespace AutoApply
             return urls;
         }
 
-        private bool EnsureTab(SiteCfg site)
+        public bool EnsureTab(SiteCfg site)
         {
             var urls = ListUrls();
             foreach (var u in urls)
@@ -211,6 +303,48 @@ namespace AutoApply
                     if (u.IndexOf(site.Match, StringComparison.OrdinalIgnoreCase) >= 0) return true;
             }
             L("warn", site.Name + " 标签页没打开（脚本会跳过这一站）");
+            return false;
+        }
+
+        /// <summary>
+        /// 把这一站准备到"能跑"：浏览器没开就开，标签页没有就开。
+        /// 「平台健康 → 重开」走的就是这条，所以它必须真能打开浏览器。
+        /// </summary>
+        public bool PrepareSite(SiteCfg s, out string msg)
+        {
+            msg = "";
+            if (!EnsureChrome(out msg)) return false;
+            if (!EnsureTab(s)) { msg = s.Name + " 的标签页没打开"; return false; }
+            msg = "已打开 " + s.Name;
+            return true;
+        }
+
+        /// <summary>
+        /// 等用户把登录 / 滑块处理完再继续（浏览器已经打开、就在他眼前）。
+        /// waitSec = 0 时只探一次，返回当前是否就绪。
+        /// 页面没响应属于"死了"，不等；其它（未登录 / 验证码 / 还在加载）都等。
+        /// </summary>
+        public bool WaitSiteReady(SiteCfg s, int waitSec, out string reason)
+        {
+            reason = "";
+            if (waitSec <= 0) return CheckSiteReady(s, out reason);
+            var until = DateTime.Now.AddSeconds(waitSec);
+            bool told = false;
+            while (!_stop)
+            {
+                if (CheckSiteReady(s, out reason)) { if (told) L("ok", s.Name + " 已就绪，继续"); return true; }
+                if (reason.IndexOf("页面没响应", StringComparison.Ordinal) >= 0) return false;
+                if (!told)
+                {
+                    told = true;
+                    L("warn", "!! " + s.Name + "：" + reason + "；浏览器已打开，处理好后会自动继续（最多等 " + (waitSec / 60) + " 分钟）");
+                    FocusBrowser(_chromePid);
+                    var at = SiteAttention;
+                    if (at != null) { try { at(s.Name, reason + "（在浏览器里处理，程序会自动继续）"); } catch { } }
+                }
+                if (DateTime.Now > until) { L("warn", s.Name + " 等待超时（" + (waitSec / 60) + " 分钟），这一站先跳过"); return false; }
+                Thread.Sleep(3000);
+            }
             return false;
         }
 
@@ -267,7 +401,7 @@ namespace AutoApply
                 if (r == "ok") return true;
                 if (r == "loading") { Thread.Sleep(1500); continue; }
                 if (r == "captcha") { reason = "页面上有验证码，需要人工拖一次滑块"; return false; }
-                if (r == "nologin" || r == "loginurl") { reason = "还没登录，点「打开浏览器」登录一次就好"; return false; }
+                if (r == "nologin" || r == "loginurl") { reason = "还没登录"; return false; }
                 if (r.Length == 0) { reason = "页面没响应（可能标签页挂了）"; return false; }
                 return true;    // 其它返回值就当作可用，别误杀
             }
@@ -305,6 +439,7 @@ namespace AutoApply
                 if (Running) { L("warn", "已经在跑了，先等这一轮结束"); return; }
                 Running = true;
                 _stop = false;
+                _loginWaitFailed = false;
             }
             RunStarted = DateTime.Now;
             RunWindowName = string.IsNullOrEmpty(windowName) ? "手动运行" : windowName;
@@ -393,12 +528,18 @@ namespace AutoApply
             {
                 L("sys", "=== 开始运行 · " + RunWindowName + " · " + RunStarted.ToString("yyyy-MM-dd HH:mm:ss"));
                 string msg;
-                if (!EnsureChrome(out msg)) L("err", msg);
-                else L("info", msg);
-
-                if (ChromeUp())
+                bool chromeOk = EnsureChrome(out msg);
+                if (chromeOk)
                 {
+                    L("info", msg);
                     L("info", "提示：如果浏览器里还没登录四个平台，请先手动登录一次（登录会记住）");
+                }
+                else
+                {
+                    // 浏览器起不来，后面每一站都只会空转（开标签页还要各等 30 秒），直接收尾。
+                    L("err", msg);
+                    var at0 = SiteAttention;
+                    if (at0 != null) { try { at0("浏览器", msg); } catch { } }
                 }
 
                 int carry = 0;
@@ -406,6 +547,18 @@ namespace AutoApply
                 {
                     if (_stop) { L("warn", "已停止，跳过剩余的站"); break; }
                     if (!s.Enabled) continue;
+                    if (!chromeOk)
+                    {
+                        var rb = new SiteResult
+                        {
+                            Key = s.Key, Name = s.Name, Started = DateTime.Now, Ended = DateTime.Now,
+                            Stop = "nochrome", Needs = msg
+                        };
+                        Results.Add(rb);
+                        L("warn", s.Name + " 跳过：" + msg);
+                        Changed();
+                        continue;
+                    }
                     if (CappedToday(s))
                     {
                         var rc = new SiteResult { Key = s.Key, Name = s.Name, Started = DateTime.Now, Ended = DateTime.Now, Stop = "capped", Needs = "今日已达上限，本轮跳过" };
@@ -438,6 +591,14 @@ namespace AutoApply
                     {
                         if (ReopenTab(s) && EnsureTab(s)) ready = CheckSiteReady(s, out reason);
                         if (ready) L("ok", s.Name + " 重开标签页后恢复正常");
+                    }
+                    // 没登录 / 有滑块：浏览器就开在用户眼前，等他处理完再继续，
+                    // 而不是像以前那样直接跳过这一站（重启电脑后最常撞的就是这条）。
+                    if (!ready)
+                    {
+                        int waitSec = _loginWaitFailed ? 0 : LoginWaitSec();
+                        ready = WaitSiteReady(s, waitSec, out reason);
+                        if (!ready && waitSec > 0) _loginWaitFailed = true;
                     }
                     if (!ready)
                     {

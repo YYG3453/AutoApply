@@ -50,3 +50,9 @@ scripts/*.jsonl
 scripts/records-*.csv
 scripts/rules.json
 report.md
+
+# 打包中间物
+AutoApply.pkg.exe
+AutoApply.verify.exe
+AutoApply.render.exe
+_verify*/

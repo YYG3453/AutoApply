@@ -18,7 +18,8 @@ namespace AutoApply
     internal class HealthPage : Page
     {
         private readonly Dictionary<string, SiteHealth> _h = new Dictionary<string, SiteHealth>();
-        private int _busy;
+        private int _busy;      // 用户点的检查/重开：同一时间只做一件
+        private int _autoScan;  // 进页面时的自动巡检：只读，不挡按钮
         private bool _checkedOnce;
         private string _summary = "";
 
@@ -59,7 +60,8 @@ namespace AutoApply
             if (!_checkedOnce)
             {
                 _checkedOnce = true;
-                CheckAll();
+                // 只是看着一页，别顺手把浏览器拉起来；要看全部状态点「全部检查」。
+                CheckAll(false, true);
             }
         }
 
@@ -106,19 +108,49 @@ namespace AutoApply
             if (tabs == null) tabs = new List<string>();
         }
 
-        public void CheckAll()
+        public void CheckAll() { CheckAll(false, false); }
+
+        public void CheckAll(bool openBrowser) { CheckAll(openBrowser, false); }
+
+        /// <summary>正在检查（用户点的或自动巡检都算），界面显示"检查中…"用。</summary>
+        private bool BusyNow { get { return Volatile.Read(ref _busy) != 0 || Volatile.Read(ref _autoScan) != 0; } }
+
+        /// <summary>
+        /// 检查四站。openBrowser=true（用户点了「全部检查」）时先把浏览器和标签页都准备好。
+        /// passive=true 是"刚切到这一页顺手看一眼"：它不占 _busy，所以按钮照常能点——
+        /// 以前两者共用一个闸，自动巡检还没跑完时点「重开」会静默什么都不做。
+        /// </summary>
+        private void CheckAll(bool openBrowser, bool passive)
         {
-            if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return;
+            if (passive)
+            {
+                if (Volatile.Read(ref _busy) != 0) return;
+                if (Interlocked.CompareExchange(ref _autoScan, 1, 0) != 0) return;
+            }
+            else if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
+            {
+                try { App.Toast("还在检查，等这一下完"); } catch { }
+                return;
+            }
             Health.Port = App.Cfg.Port;
             Health.ScriptDir = App.Engine.ScriptDir;
             var sites = App.Cfg.Sites;
+            _summary = openBrowser ? "正在打开浏览器 …" : "正在检查 …";
+            Ui(delegate { Invalidate(); });
             ThreadPool.QueueUserWorkItem(delegate
             {
                 try
                 {
-                    // 调试端口没连上时，四站挨个问一遍要 4×1.2 秒超时；
-                    // 直接一次判定，卡片立刻显示"没连上"，用户点「重开」才去开浏览器。
-                    if (!Health.ChromeAlive())
+                    bool alive = Health.ChromeAlive();
+                    if (!alive && openBrowser)
+                    {
+                        string msg;
+                        alive = App.Engine.EnsureChrome(out msg);
+                        if (!alive) { _summary = msg; return; }
+                        _summary = "浏览器已打开，正在打开四个平台 …";
+                        Ui(delegate { Invalidate(); });
+                    }
+                    if (!alive)
                     {
                         lock (_h)
                         {
@@ -132,7 +164,7 @@ namespace AutoApply
                                     Checked = DateTime.Now.ToString("HH:mm:ss")
                                 };
                         }
-                        _summary = "浏览器没连上：点「重开」会顺手开起来";
+                        _summary = "浏览器没连上：点「重开」会打开它";
                         return;
                     }
                     int issues = 0;
@@ -140,33 +172,95 @@ namespace AutoApply
                     {
                         var s = sites[i];
                         if (!s.Enabled) continue;
+                        if (openBrowser) App.Engine.EnsureTab(s);
                         SiteHealth h;
                         try { h = Health.Probe(s); }
                         catch { h = new SiteHealth(); h.Key = s.Key; h.Name = s.Name; h.Note = "检查失败"; }
                         if (h.Note != "正常") issues++;
                         lock (_h) { _h[s.Key] = h; }
+                        _summary = "已检查 " + (i + 1) + " / " + sites.Count + " 站";
                         Ui(delegate { Invalidate(); });
                     }
                     _summary = issues == 0 ? "四站都正常" : ("有 " + issues + " 站需要处理");
                 }
                 catch (Exception ex) { _summary = "检查出错：" + ex.Message; }
-                finally { Volatile.Write(ref _busy, 0); Ui(delegate { Invalidate(); }); }
+                finally
+                {
+                    if (passive) Volatile.Write(ref _autoScan, 0); else Volatile.Write(ref _busy, 0);
+                    Ui(delegate { Invalidate(); }); RefreshSnapshot();
+                }
             });
         }
 
+        /// <summary>只查这一站（会先把浏览器 / 标签页准备好）。</summary>
+        private void CheckOne(SiteCfg s)
+        {
+            if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return;
+            Health.Port = App.Cfg.Port;
+            Health.ScriptDir = App.Engine.ScriptDir;
+            _summary = "正在检查 " + s.Name + " …";
+            Ui(delegate { Invalidate(); });
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    string msg;
+                    if (!Health.ChromeAlive() && !App.Engine.EnsureChrome(out msg)) { _summary = msg; return; }
+                    App.Engine.EnsureTab(s);
+                    var h = Health.Probe(s);
+                    lock (_h) { _h[s.Key] = h; }
+                    _summary = s.Name + "：" + h.Note;
+                }
+                catch (Exception ex) { _summary = "检查失败：" + ex.Message; }
+                finally { Volatile.Write(ref _busy, 0); Ui(delegate { Invalidate(); }); RefreshSnapshot(); }
+            });
+        }
+
+        /// <summary>「全部重开」：打开浏览器 → 四站标签页都开 → 直接开跑（没登录会自动等）。</summary>
+        private void ReopenAll()
+        {
+            if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return;
+            Health.Port = App.Cfg.Port;
+            Health.ScriptDir = App.Engine.ScriptDir;
+            _summary = "正在全部重开，随后自动投递 …";
+            Ui(delegate { Invalidate(); });
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    var list = new List<SiteCfg>();
+                    foreach (var s in App.Cfg.Sites) if (s.Enabled) list.Add(s);
+                    if (list.Count == 0) { _summary = "四个平台都停用了，先去「平台与关键词」打开一个"; return; }
+                    Ui(delegate { App.StartRunSites(list, "全部重开 · 自动投递"); });
+                    _summary = "四站已开始（打开浏览器 → 登录 → 自动投递）";
+                }
+                catch (Exception ex) { _summary = "重开失败：" + ex.Message; }
+                finally { Volatile.Write(ref _busy, 0); Ui(delegate { Invalidate(); }); RefreshSnapshot(); }
+            });
+        }
+
+        /// <summary>
+        /// 「重开」= 打开浏览器（没开就开）→ 打开这一站的标签页 → 直接开跑。
+        /// 跑起来之后引擎会自己等登录：页面就在用户眼前，登录 / 拖完滑块就继续投。
+        /// </summary>
         private void Reopen(SiteCfg s)
         {
             if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return;
             Health.Port = App.Cfg.Port;
             Health.ScriptDir = App.Engine.ScriptDir;
+            _summary = "正在重开 " + s.Name + "，随后自动投递 …";
+            Ui(delegate { Invalidate(); });
             ThreadPool.QueueUserWorkItem(delegate
             {
                 try
                 {
-                    Health.Reopen(s);
-                    var h = Health.Probe(s);
-                    lock (_h) { _h[s.Key] = h; }
-                    _summary = s.Name + "：" + h.Note;
+                    // 只关掉挂死的旧标签；开浏览器 / 开新标签 / 等登录都交给引擎，
+                    // 这样"浏览器起不来"这种失败会进运行日志，而不是只在这页闪一行字。
+                    try { Health.Reopen(s); } catch { }
+                    var one = new List<SiteCfg>();
+                    one.Add(s);
+                    Ui(delegate { App.StartRunSites(one, s.Name + " · 重开后自动投递"); });
+                    _summary = s.Name + "：已开始（打开浏览器 → 登录 → 自动投递）";
                 }
                 catch (Exception ex) { _summary = "重开失败：" + ex.Message; }
                 finally { Volatile.Write(ref _busy, 0); Ui(delegate { Invalidate(); }); RefreshSnapshot(); }
@@ -201,7 +295,7 @@ namespace AutoApply
 
             float W = Width / T.S, H = Height / T.S;
             T.Draw(g, "平台健康", Fonts.H1, T.Text, 32, 24);
-            T.Draw(g, "四站的标签页 / 登录态 / 验证码一屏看完；异常点右边「重开」即可", Fonts.Small, T.Text3, 32, 62);
+            T.Draw(g, "「重开」会打开浏览器并进入该平台，登录 / 拖完滑块后自动开始投递", Fonts.Small, T.Text3, 32, 62);
 
             // 右上操作按钮（右边留出窗口三键的位置）
             Ghost(g, new RectangleF(W - 452, 26, 108, 32), "全部检查", "health:check", T.Jade);
@@ -224,7 +318,7 @@ namespace AutoApply
             Kpi(g, new RectangleF(32 + (kw + 14) * 2, ky, kw, kh), "标签页", tabs.Count.ToString(),
                 T.Text, App.Cfg.Sites.Count + " 站需要各自的页面");
             Kpi(g, new RectangleF(32 + (kw + 14) * 3, ky, kw, kh), "待处理", issues.ToString(),
-                issues == 0 ? T.Jade : T.Warn, _busy != 0 ? "检查中…" : (_summary.Length > 0 ? _summary : "尚未检查"));
+                issues == 0 ? T.Jade : T.Warn, BusyNow ? "检查中…" : (_summary.Length > 0 ? _summary : "尚未检查"));
 
             // 四站卡片 2×2
             float top = ky + kh + 18f;
@@ -245,9 +339,9 @@ namespace AutoApply
                 T.Draw(g, s.Enabled ? "已启用" : "已停用", Fonts.Tiny, T.Text3, x + 36, y + 42);
 
                 float ly = y + 68f;
-                string tabText = h == null ? (_busy != 0 ? "检查中…" : "未检查") : (h.HasTab ? (h.Tabs + " 个标签页") : "没有标签页");
-                string loginText = h == null ? (_busy != 0 ? "检查中…" : "—") : (h.Login == "yes" ? "已登录" : h.Login == "no" ? "未登录" : "无法判断");
-                string capText = h == null ? (_busy != 0 ? "检查中…" : "—") : (h.Captcha ? "有验证码" : "无");
+                string tabText = h == null ? (BusyNow ? "检查中…" : "未检查") : (h.HasTab ? (h.Tabs + " 个标签页") : "没有标签页");
+                string loginText = h == null ? (BusyNow ? "检查中…" : "—") : (h.Login == "yes" ? "已登录" : h.Login == "no" ? "未登录" : "无法判断");
+                string capText = h == null ? (BusyNow ? "检查中…" : "—") : (h.Captcha ? "有验证码" : "无");
                 T.Draw(g, "标签页", Fonts.Small, T.Text3, x + 36, ly);
                 T.Draw(g, tabText, Fonts.Small, h != null && !h.HasTab ? T.Warn : T.Text2, x + 110, ly);
                 ly += 24;
@@ -261,15 +355,24 @@ namespace AutoApply
                 T.Draw(g, LastRunOf(s.Key), Fonts.Small, T.Text2, x + 110, ly);
 
                 string note = h != null && h.Note.Length > 0 && h.Note != "正常" ? h.Note : "";
-                if (note.Length == 0 && !chrome) note = "还没连上浏览器调试端口";
+                if (note.Length == 0 && !chrome) note = "还没连上调试端口 · 点「重开」";
                 if (note.Length > 0)
-                    T.Draw(g, note, Fonts.Tiny, (h != null && h.Captcha) ? T.Danger : T.Warn, x + 36, y + chh - 34);
+                    T.Draw(g, Fit(g, note, Fonts.Tiny, cw - 48f), Fonts.Tiny,
+                           (h != null && h.Captcha) ? T.Danger : T.Warn, x + 36, y + chh - 34);
 
                 Ghost(g, new RectangleF(x + cw - 176, y + chh - 40, 72, 28), "检查", "health:check:" + s.Key, T.Text2);
                 Ghost(g, new RectangleF(x + cw - 96, y + chh - 40, 72, 28), "重开", "health:reopen:" + s.Key, T.Jade);
-                AddHit("health:check:" + s.Key, new RectangleF(x + cw - 176, y + chh - 40, 72, 28));
-                AddHit("health:reopen:" + s.Key, new RectangleF(x + cw - 96, y + chh - 40, 72, 28));
             }
+        }
+
+        /// <summary>一行字超宽就截断加省略号：卡片底部的提示不能糊到按钮上去。</summary>
+        private static string Fit(Graphics g, string s, Font f, float maxW)
+        {
+            if (maxW <= 20 || s == null || s.Length == 0) return s;
+            if (g.MeasureString(s, f).Width <= maxW) return s;
+            while (s.Length > 3 && g.MeasureString(s + "…", f).Width > maxW)
+                s = s.Substring(0, s.Length - 1);
+            return s + "…";
         }
 
         /// <summary>KPI 卡：数字用大号数字字体，文字（"已连接"/版本号）用小一号，别撑破卡片。</summary>
@@ -314,13 +417,14 @@ namespace AutoApply
 
         protected override void OnHit(string id)
         {
-            if (id == "health:check") { CheckAll(); return; }
-            if (id == "health:reopenall")
+            if (id == "health:check") { CheckAll(true); return; }
+            if (id == "health:reopenall") { ReopenAll(); return; }
+            if (id.StartsWith("health:check:"))
             {
-                foreach (var s in App.Cfg.Sites) { if (s.Enabled) Reopen(s); }
+                string key = id.Substring("health:check:".Length);
+                foreach (var s in App.Cfg.Sites) if (s.Key == key) { CheckOne(s); return; }
                 return;
             }
-            if (id.StartsWith("health:check:")) { CheckAll(); return; }
             if (id.StartsWith("health:reopen:"))
             {
                 string key = id.Substring("health:reopen:".Length);
