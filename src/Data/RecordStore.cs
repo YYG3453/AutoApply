@@ -20,6 +20,8 @@ namespace AutoApply
         public string Key = "";
         public DateTime Ts;
         public bool HasTs = true;
+        /// <summary>投递时的匹配分；早期记录没有这个字段，记 -1。</summary>
+        public int Score = -1;
         public string Raw = "";
 
         public string TimeText { get { return HasTs ? Ts.ToString("MM-dd HH:mm") : "—"; } }
@@ -42,6 +44,43 @@ namespace AutoApply
 
         public string TimeText { get { return HasTs ? Ts.ToString("MM-dd HH:mm") : "—"; } }
         public string DayText { get { return HasTs ? Ts.ToString("yyyy-MM-dd") : ""; } }
+    }
+
+    /// <summary>一条"每站耗时"事实（来自 runs.jsonl，由 Engine 每跑完一站写一行）。</summary>
+    internal class RunRow
+    {
+        public string Run = "";       // 批次标识（yyyy-MM-ddTHH:mm:ss）
+        public string Window = "";    // 上午场 / 下午场 / 手动运行
+        public string SiteKey = "";
+        public string SiteName = "";
+        public double Mins;
+        public int Sent;
+        public string Stop = "";
+        public DateTime Ts;
+        /// <summary>写入顺序，用来还原一轮里各站的先后。</summary>
+        public int Seq;
+
+        public string TimeText { get { return Ts == DateTime.MinValue ? "—" : Ts.ToString("MM-dd HH:mm"); } }
+        public string DayText { get { return Ts == DateTime.MinValue ? "" : Ts.ToString("yyyy-MM-dd"); } }
+        public string StopText
+        {
+            get
+            {
+                switch (Stop)
+                {
+                    case "": return "正常结束";
+                    case "time": return "到时收工";
+                    case "max": return "到达上限";
+                    case "limit": return "平台限额";
+                    case "notab": return "没有标签页";
+                    case "login": return "未登录";
+                    case "captcha": return "验证码";
+                    case "nosent": return "发不出去";
+                    case "err": return "出错";
+                    default: return Stop;
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -68,6 +107,19 @@ namespace AutoApply
         public readonly List<SkipRec> Skips = new List<SkipRec>();
         public int SkippedToday, SkippedTotal;
         public Dictionary<string, int> SkipByReason = new Dictionary<string, int>();
+
+        /// <summary>每站耗时事实（runs.jsonl），新的在前。</summary>
+        public readonly List<RunRow> Runs = new List<RunRow>();
+        /// <summary>最近一轮的每站行（按站的固定顺序）。</summary>
+        public readonly List<RunRow> LastRun = new List<RunRow>();
+        public string LastRunKey = "";
+        public string LastRunTime = "";
+        public double LastRunMins;
+        /// <summary>平台层面的失败原因（limit/login/captcha/notab/nosent…）→ 次数。</summary>
+        public Dictionary<string, int> StopByReason = new Dictionary<string, int>();
+        /// <summary>每站平均耗时（分钟），用于"每站耗时"条形。</summary>
+        public Dictionary<string, double> AvgMinsBySite = new Dictionary<string, double>();
+        public Dictionary<string, int> RunsByDay = new Dictionary<string, int>();
 
         public int CountToday(string key) { int v; return TodayBySite.TryGetValue(key, out v) ? v : 0; }
         public int CountTotal(string key) { int v; return TotalBySite.TryGetValue(key, out v) ? v : 0; }
@@ -136,6 +188,7 @@ namespace AutoApply
 
             // 被规则过滤的记录（可能不存在，那时 Skips 为空）
             st.LoadSkips(scriptDir, day);
+            st.LoadRuns(scriptDir);
 
             // 新的在前；没有时间戳的沉到最后
             st.All.Sort(delegate (JobRec a, JobRec b) { return b.Ts.CompareTo(a.Ts); });
@@ -205,6 +258,87 @@ namespace AutoApply
             catch { }
         }
 
+        private void LoadRuns(string scriptDir)
+        {
+            var path = Path.Combine(scriptDir, "runs.jsonl");
+            if (!File.Exists(path)) return;
+            var sums = new Dictionary<string, double>();
+            var cnts = new Dictionary<string, int>();
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var sr = new StreamReader(fs, Encoding.UTF8))
+                {
+                    string line;
+                    while ((line = sr.ReadLine()) != null)
+                    {
+                        line = line.Trim();
+                        if (line.Length < 2 || line[0] != '{') { if (line.Length > 0) BadLines++; continue; }
+                        try
+                        {
+                            var r = new RunRow();
+                            r.Seq = Runs.Count;
+                            r.Run = Str(line, "run");
+                            r.Window = Str(line, "window");
+                            r.SiteKey = Str(line, "site");
+                            r.SiteName = Str(line, "name");
+                            double mv;
+                            if (double.TryParse(Str(line, "mins"), NumberStyles.Float, CultureInfo.InvariantCulture, out mv)) r.Mins = mv;
+                            int sv;
+                            if (int.TryParse(Str(line, "sent"), out sv)) r.Sent = sv;
+                            r.Stop = Str(line, "stop");
+                            var ts = Str(line, "ts");
+                            if (ts.Length >= 10)
+                            {
+                                DateTimeOffset dto;
+                                if (DateTimeOffset.TryParse(ts, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out dto)) r.Ts = dto.LocalDateTime;
+                            }
+                            Runs.Add(r);
+
+                            if (r.SiteKey.Length > 0)
+                            {
+                                double s0; sums.TryGetValue(r.SiteKey, out s0); sums[r.SiteKey] = s0 + r.Mins;
+                                int c0; cnts.TryGetValue(r.SiteKey, out c0); cnts[r.SiteKey] = c0 + 1;
+                            }
+                            if (r.Stop.Length > 0 && r.Stop != "time" && r.Stop != "max")
+                            {
+                                int b; StopByReason.TryGetValue(r.Stop, out b); StopByReason[r.Stop] = b + 1;
+                            }
+                            if (r.Ts != DateTime.MinValue)
+                            {
+                                var d = r.Ts.ToString("yyyy-MM-dd");
+                                int v; RunsByDay.TryGetValue(d, out v); RunsByDay[d] = v + 1;
+                            }
+                        }
+                        catch { BadLines++; }
+                    }
+                }
+            }
+            catch { }
+
+            foreach (var kv in sums)
+            {
+                int c; cnts.TryGetValue(kv.Key, out c);
+                if (c > 0) AvgMinsBySite[kv.Key] = kv.Value / c;
+            }
+
+            Runs.Sort(delegate (RunRow a, RunRow b) { return b.Ts.CompareTo(a.Ts); });
+            if (Runs.Count == 0) return;
+
+            LastRunKey = Runs[0].Run;
+            LastRunTime = Runs[0].Ts == DateTime.MinValue ? "" : Runs[0].Ts.ToString("MM-dd HH:mm");
+            double total = 0;
+            foreach (var r in Runs)
+            {
+                if (r.Run != LastRunKey) continue;
+                LastRun.Add(r);
+                total += r.Mins;
+            }
+            LastRunMins = total;
+            // 同批次内按写入顺序（站序）排回来
+            LastRun.Sort(delegate (RunRow a, RunRow b) { return a.Seq.CompareTo(b.Seq); });
+        }
+
         private static JobRec Parse(string line, string siteKey, string siteName)
         {
             var r = new JobRec();
@@ -221,6 +355,8 @@ namespace AutoApply
             r.Loc = Str(line, "loc");
             if (r.Loc.Length == 0) r.Loc = Str(line, "area");
             if (r.City.Length == 0) r.City = CityOf(r.Loc);
+            var sc = Str(line, "score");
+            if (sc.Length > 0) { int sv; if (int.TryParse(sc, out sv)) r.Score = sv; }
 
             var ts = Str(line, "ts");
             if (ts.Length >= 10)

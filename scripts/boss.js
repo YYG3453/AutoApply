@@ -267,7 +267,7 @@ async function main() {
           if (r.why === 'limit') { log('!! 今日BOSS沟通次数已用完:', r.dlg || ''); stop = 'limit'; break; }
           if (r.ok) {
             sent++; fresh++; seen.add(j.id); nosentRun = 0;
-            record({ id: j.id, title: j.title, company: j.company, salary: j.salary, loc: j.loc, city: city.name, kw, ts: new Date().toISOString() });
+            record({ id: j.id, title: j.title, company: j.company, salary: j.salary, loc: j.loc, city: city.name, kw, score: sc.score, ts: new Date().toISOString() });
             log(`OK ${sent} ${j.title} @ ${j.company} ${j.salary}`);
           } else if (r.why === 'already') {
             seen.add(j.id); skipped++;

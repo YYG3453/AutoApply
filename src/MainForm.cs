@@ -14,14 +14,19 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.3.1";
+        public const string Version = "1.4.0";
 
         /// <summary>--tray：启动后只呆在托盘里，不弹窗口（给计划任务用）。</summary>
         public bool StartInTray;
+
+        /// <summary>--run-now：启动后立刻跑一轮（自测/命令行触发用）。</summary>
+        public bool StartRunNow;
         public readonly string BaseDir;
         public AppCfg Cfg;
         public Engine Engine;
         public RecordStore Records;
+        /// <summary>匹配规则（界面上的阈值/词表），页面只读它做展示。</summary>
+        public RulesCfg Rules;
         /// <summary>已注册的页面 key（顺序沿用导航注册表），给 --render 之类工具用。</summary>
         public System.Collections.Generic.List<string> Pages
         {
@@ -83,6 +88,8 @@ namespace AutoApply
             StartPosition = FormStartPosition.CenterScreen;
             Shown += (s, e) =>
             {
+                if (StartRunNow)
+                    BeginInvoke(new Action(delegate { try { StartRunManual(); } catch (Exception ex) { Program.Trace("run-now delegate throw: " + ex.Message); } }));
                 if (!StartInTray) return;
                 WindowState = FormWindowState.Minimized;
                 Hide();
@@ -167,11 +174,12 @@ namespace AutoApply
             {
                 if (parts[i] == "--page" && i + 1 < parts.Length && _pages.ContainsKey(parts[i + 1])) ShowPage(parts[i + 1]);
                 if (parts[i] == "--tray") StartInTray = true;
+                if (parts[i] == "--run-now") StartRunNow = true;
             }
             Program.Trace("argv=[" + joined + "] page=" + _page);
 
             var ws = new Timer { Interval = 900 };
-            ws.Tick += (s, e) => { ws.Stop(); Records = RecordStore.Load(Engine.ScriptDir); _dash.Invalidate(); };
+            ws.Tick += (s, e) => { ws.Stop(); Records = RecordStore.Load(Engine.ScriptDir); Rules = RulesCfg.Load(Engine.ScriptDir); _dash.Invalidate(); };
             ws.Start();
 
             // 启动后台收编旧流程（禁用旧计划任务 / 合并历史记录 / 迁移登录态）
@@ -321,12 +329,18 @@ namespace AutoApply
 
         public void StartRunManual()
         {
+            Program.Trace("StartRunManual enter running=" + (Engine == null ? "null-engine" : Engine.Running.ToString()) + " sites=" + (Cfg == null ? -1 : Cfg.Sites.Count) + " enabled=" + (Cfg == null ? -1 : Cfg.Sites.FindAll(delegate (SiteCfg s) { return s.Enabled; }).Count));
             if (Engine.Running) { Toast("已经在跑了"); return; }
             var sites = new List<SiteCfg>();
             foreach (var s in Cfg.Sites) if (s.Enabled) sites.Add(s);
             if (sites.Count == 0) { Toast("四个平台都被停用了，先去「平台与关键词」打开一个"); return; }
             Records = RecordStore.Load(Engine.ScriptDir);
-            Engine.StartRun(sites, "手动运行");
+            try
+            {
+                Engine.StartRun(sites, "手动运行");
+                Program.Trace("StartRunManual started sites=" + sites.Count + " first=" + sites[0].Key);
+            }
+            catch (Exception ex) { Program.Trace("StartRunManual throw: " + ex.GetType().Name + ": " + ex.Message); return; }
             ShowPage("log");
             _log.View.Add("sys", "=== 手动开始一轮投递");
         }

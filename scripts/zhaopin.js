@@ -240,7 +240,7 @@ async function main() {
         if (r.tip && /(?:安全验证|请完成验证|验证码|投递上限|操作过于频繁|操作频繁|已达上限)/.test(r.tip)) { log('!! STOP:', r.tip); stop = 'limit'; break; }
         if (r.ok) {
           sent++; fresh++; seen.add(key);
-          record({ key, title: r.panel || '', company: j.company, salary: j.salary, loc: j.loc, city, kw, ts: new Date().toISOString() });
+          record({ key, title: r.panel || '', company: j.company, salary: j.salary, loc: j.loc, city, kw, score: sc.score, ts: new Date().toISOString() });
           log('OK ' + sent + ' ' + (r.panel || '') + ' @ ' + j.company + ' ' + j.salary + ' [' + j.loc + ']');
         } else if (r.why === 'already') {
           seen.add(key); skipped++;

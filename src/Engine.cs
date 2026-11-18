@@ -300,6 +300,46 @@ namespace AutoApply
             Changed();
         }
 
+        /// <summary>
+        /// 把这一轮每站的耗时/条数/结束原因写成 facts（runs.jsonl，一行一站）。
+        /// 为什么要单独落这个文件：界面上的"每站耗时"和"失败原因排行"需要一个结构化来源，
+        /// 不能靠正则去啃 task.log 的文本行。
+        /// </summary>
+        private void WriteRunLog()
+        {
+            try
+            {
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                var sb = new System.Text.StringBuilder();
+                for (int i = 0; i < Results.Count; i++)
+                {
+                    var r = Results[i];
+                    if (r.Started == DateTime.MinValue) continue;
+                    var ended = r.Ended == DateTime.MinValue ? DateTime.Now : r.Ended;
+                    var mins = Math.Max(0.0, (ended - r.Started).TotalMinutes);
+                    sb.Append("{\"run\":\"").Append(RunStarted.ToString("yyyy-MM-ddTHH:mm:ss", inv)).Append('"');
+                    sb.Append(",\"ts\":\"").Append(r.Started.ToString("yyyy-MM-ddTHH:mm:ss", inv)).Append('"');
+                    sb.Append(",\"window\":\"").Append(JsonStr(RunWindowName)).Append('"');
+                    sb.Append(",\"site\":\"").Append(JsonStr(r.Key)).Append('"');
+                    sb.Append(",\"name\":\"").Append(JsonStr(r.Name)).Append('"');
+                    sb.Append(",\"mins\":").Append(mins.ToString("0.0", inv));
+                    sb.Append(",\"sent\":").Append(r.Sent.ToString(inv));
+                    sb.Append(",\"stop\":\"").Append(JsonStr(r.Stop)).Append("\"}");
+                    sb.Append('\n');
+                }
+                if (sb.Length == 0) return;
+                File.AppendAllText(Path.Combine(ScriptDir, "runs.jsonl"), sb.ToString(), new System.Text.UTF8Encoding(false));
+                Program.Trace("runs.jsonl appended rows=" + Results.Count);
+            }
+            catch (Exception ex) { L("warn", "写运行记录失败：" + ex.Message); }
+        }
+
+        private static string JsonStr(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", " ").Replace("\n", " ");
+        }
+
         private static void KillTree(Process p)
         {
             try
@@ -372,11 +412,13 @@ namespace AutoApply
                     Changed();
                 }
 
+                WriteRunLog();
                 FinishReport();
             }
             catch (Exception ex)
             {
                 L("err", "运行异常：" + ex.Message);
+                Program.Trace("run worker exception: " + ex.Message);
             }
             finally
             {

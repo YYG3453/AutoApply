@@ -289,7 +289,7 @@ async function main() {
         if (r.why === 'limit' || /安全验证|验证码|上限|频繁|投递太多/.test(r.tip || '')) { log('!! STOP:', r.tip || r.why); stop = 'limit'; break; }
         if (r.ok) {
           sent++; fresh++; seen.add(key);
-          record({ key, title: j.title, area: j.area, salary: j.salary, kw, ts: new Date().toISOString() });
+          record({ key, title: j.title, area: j.area, salary: j.salary, kw, score: sc.score, ts: new Date().toISOString() });
           log('OK ' + sent + ' ' + j.title + ' [' + j.area + '] ' + j.salary);
         } else if (r.why === 'already') {
           seen.add(key); skipped++;

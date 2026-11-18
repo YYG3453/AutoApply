@@ -242,7 +242,7 @@ async function main() {
           if (/安全验证|验证码|上限|频繁/.test(r.tip || '')) { log('!! STOP:', r.tip); stop = 'limit'; break; }
           if (r.ok) {
             sent++; fresh++; seen.add(key);
-            record({ key, title: j.title, loc: j.loc, kw, ts: new Date().toISOString() });
+            record({ key, title: j.title, loc: j.loc, kw, score: sc.score, ts: new Date().toISOString() });
             log('OK ' + sent + ' ' + j.title + ' [' + j.loc + ']');
           } else {
             errs++; log('SKIP', j.title, r.why, r.tip || '');
