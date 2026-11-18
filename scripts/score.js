@@ -23,6 +23,11 @@ const DEFAULTS = {
   skillBonus: 4,
   skillBonusCap: 16,
   kwBonus: 8,
+  // 正文（JD）规则：只有点了卡片、读到详情正文的站才用得上（BOSS / 智联）
+  jdExclude: ['电话销售', '外呼', '电销', '电话邀约', '招生', '课程顾问', '保险代理人', '无底薪', '纯提成'],
+  jdInclude: ['MySQL', 'SQL', 'Linux', '数据库', '部署', '驻场', '出差', '售后', '培训', '验收', '实施', '排查', '日志', '服务器'],
+  jdBonus: 3,
+  jdBonusCap: 12,
 };
 
 let cache = null;
@@ -46,7 +51,7 @@ function loadRules() {
     out[k] = v;
   }
   // 列表字段做一下清洗：去空、去重、保持顺序
-  for (const k of ['titleInclude', 'titleExclude', 'companyBlacklist', 'skillWords']) {
+  for (const k of ['titleInclude', 'titleExclude', 'companyBlacklist', 'skillWords', 'jdExclude', 'jdInclude']) {
     const arr = Array.isArray(out[k]) ? out[k] : String(out[k] || '').split(/[,，\s]+/);
     const seen = {};
     out[k] = arr.map((s) => String(s).trim()).filter((s) => {
@@ -61,6 +66,8 @@ function loadRules() {
   out.skillBonus = Number(out.skillBonus);
   out.skillBonusCap = Number(out.skillBonusCap);
   out.kwBonus = Number(out.kwBonus);
+  out.jdBonus = Number(out.jdBonus);
+  out.jdBonusCap = Number(out.jdBonusCap);
   cache = out;
   cacheAt = now;
   return out;
@@ -117,7 +124,22 @@ function evaluate(job) {
     notes.push('技能词 ' + sk.join('/') + ' +' + add);
   }
 
-  // 6) 搜索关键词出现在标题里（说明就是为它搜出来的）
+  // 6) 正文（JD）闸门：标题里带"实施"、正文其实是电话销售/招生/招商的，在这里拦下
+  const jd = String((job && job.jd) || '').replace(/\s+/g, ' ').trim();
+  if (jd.length > 0) {
+    const badJd = hit(jd, r.jdExclude);
+    if (badJd.length) {
+      return { pass: false, score: 0, reason: '正文含排除词：' + badJd[0], notes: ['正文=' + jd.slice(0, 50)] };
+    }
+    const goodJd = hit(jd, r.jdInclude);
+    if (goodJd.length) {
+      const add = Math.min(r.jdBonusCap, goodJd.length * r.jdBonus);
+      score += add;
+      notes.push('正文命中 ' + goodJd.join('/') + ' +' + add);
+    }
+  }
+
+  // 7) 搜索关键词出现在标题里（说明就是为它搜出来的）
   if (kw && title.indexOf(kw) >= 0) {
     score += r.kwBonus;
     notes.push('与关键词一致 +' + r.kwBonus);

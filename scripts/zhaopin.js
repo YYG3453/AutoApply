@@ -138,7 +138,7 @@ async function searchKw(c, kw) {
   return await ev(c, SCAN);
 }
 
-async function applyOne(c, idx) {
+async function applyOne(c, idx, job) {
   await ev(c, `(() => { const d=document.querySelector('.deliver-greeting-modal'); if(d){const b=d.querySelector('.deliver-greeting-modal__close, .deliver-greeting-modal__btn--sec'); if(b) b.click();} return 'ok'; })()`);
   const clickRes = await ev(c, `(() => {
     const cs = document.querySelectorAll('.job-card');
@@ -152,9 +152,14 @@ async function applyOne(c, idx) {
   const panel = await ev(c, `(() => {
     const p = document.querySelector('.job-detail-panel');
     const w = document.querySelector('.job-detail-summary__title-text') || document.querySelector('.job-detail-card__title-wrap');
-    const t = p ? p.innerText.replace(/\\s+/g, ' ').slice(0, 160) : '';
-    return { title: w ? w.innerText.replace(/\\s+/g, ' ').trim() : '', head: t };
+    const full = p ? p.innerText.replace(/\\s+/g, ' ') : '';
+    return { title: w ? w.innerText.replace(/\\s+/g, ' ').trim() : '', head: full.slice(0, 160), text: full.slice(0, 900) };
   })()`);
+  // 正文闸门：招聘要求/岗位描述里出现"电话销售/外呼/招生"这类，标题再像也不投
+  if (panel && panel.text && panel.text.length > 40) {
+    const sc = SCORE.evaluate({ title: (job && job.title) || panel.title, company: job && job.company, kw: job && job.kw, jd: panel.text });
+    if (!sc.pass) return { ok: false, why: 'jd', score: sc.score, reason: sc.reason, panel: panel.title };
+  }
   const st = await ev(c, `(() => {
     const b = document.querySelector('button.job-detail-summary__apply');
     if (!b) return { btn: '' };
@@ -236,8 +241,15 @@ async function main() {
         if (j.applied) { seen.add(key); skipped++; continue; }
         if (dry) { log('DRY would apply', j.company, '@', city, j.salary); seen.add(key); continue; }
         let r;
-        try { r = await applyOne(c, j.i); } catch (e) { log('apply err', j.company, e.message); errs++; continue; }
+        try { r = await applyOne(c, j.i, j); } catch (e) { log('apply err', j.company, e.message); errs++; continue; }
         if (r.tip && /(?:安全验证|请完成验证|验证码|投递上限|操作过于频繁|操作频繁|已达上限)/.test(r.tip)) { log('!! STOP:', r.tip); stop = 'limit'; break; }
+        if (r.why === 'jd') {
+          filtered++; seen.add(key); skipped++;
+          if (!skipSeen.has(key)) { skipSeen.add(key); skipRecord({ site: 'zp', key, title: j.title, company: j.company, salary: j.salary, loc: j.loc, city, kw, score: r.score, reason: r.reason, ts: new Date().toISOString() }); }
+          log('FILTER-JD ' + r.score + ' ' + r.reason + ' | ' + j.company + ' ' + (j.title || ''));
+          await sleep(pace * 1000);
+          continue;
+        }
         if (r.ok) {
           sent++; fresh++; seen.add(key);
           record({ key, title: r.panel || '', company: j.company, salary: j.salary, loc: j.loc, city, kw, score: sc.score, ts: new Date().toISOString() });

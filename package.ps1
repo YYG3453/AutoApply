@@ -30,8 +30,23 @@ Copy-Item $nodeSrc (Join-Path $dist "node\node.exe")
 Write-Host "== copy scripts"
 $sd = Join-Path $dist "scripts"
 New-Item -ItemType Directory $sd | Out-Null
-$files = @("boss.js", "zhaopin.js", "yingjiesheng.js", "q51job.js", "cdp.js", "evalfile.js", "make-report.js", "score.js", "rules.json", "cities.json", "cities-zp.json")
-foreach ($f in $files) { Copy-Item (Join-Path $root ("scripts\" + $f)) $sd }
+# Base list + anything the C# side calls by name (RunNodeTool("x.js") / RunTool("evalfile.js","x.js")).
+# The auto-scan is the guard that stops us shipping a package whose script is silently missing.
+$files = @("boss.js", "zhaopin.js", "yingjiesheng.js", "q51job.js", "cdp.js", "evalfile.js", "make-report.js", "score.js",
+  "replies.js", "probe-health.js", "rules.json", "cities.json", "cities-zp.json")
+$refs = @()
+Get-ChildItem (Join-Path $root "src") -Recurse -Filter *.cs | ForEach-Object {
+  $txt = Get-Content $_.FullName -Raw
+  foreach ($m in [regex]::Matches($txt, 'RunNodeTool\("([^"]+\.js)"')) { $refs += $m.Groups[1].Value }
+}
+$refs = $refs | Sort-Object -Unique
+foreach ($r in $refs) { if ($files -notcontains $r) { Write-Host ("  auto-add " + $r); $files += $r } }
+foreach ($f in $files) {
+  $src = Join-Path $root ("scripts\" + $f)
+  if (-not (Test-Path $src)) { throw ("script missing from scripts\: " + $f) }
+  Copy-Item $src $sd
+}
+Write-Host ("  scripts in package: " + $files.Count)
 
 Write-Host "== zip"
 $zip = Join-Path $root ("dist\" + $name + ".zip")

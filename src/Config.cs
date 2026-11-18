@@ -40,6 +40,24 @@ namespace AutoApply
         public string Range { get { return string.Format("{0:00}:{1:00} – {2:00}:{3:00}", StartHour, StartMin, EndHour, EndMin); } }
     }
 
+    /// <summary>
+    /// 一版招呼语。文本要靠人工贴到各平台账号设置里（平台在投递时自动带出，程序改不了正文），
+    /// 程序负责的是记录「从什么时候起用的是这一版」，这样才能算每版回复率。
+    /// </summary>
+    internal class GreetCfg
+    {
+        public string Id = "A";
+        public string Name = "";
+        public string Text = "";
+    }
+
+    /// <summary>切换记录：从 From 这一刻起，投出去的岗位都属于 Id 这一版。</summary>
+    internal class GreetSwitch
+    {
+        public string Id = "A";
+        public DateTime From = DateTime.MinValue;
+    }
+
     internal class AppCfg
     {
         /// <summary>
@@ -60,6 +78,16 @@ namespace AutoApply
         /// <summary>"night" = 夜晚模式（默认），"day" = 日间模式。</summary>
         public string Theme = "night";
         public int NightStyle = 4;
+
+        /// <summary>
+        /// 招呼语实验：平台侧的招呼语是账号设置里的一句固定话，投递时由平台自动带出，
+        /// 程序改不了正文。所以这里只做三件事——存三版文本、记下每次切换的时间、
+        /// 按时间把投递和回复对上号算各版回复率。
+        /// </summary>
+        public List<GreetCfg> Greetings = new List<GreetCfg>();
+        public string GreetActive = "A";
+        public List<GreetSwitch> GreetHistory = new List<GreetSwitch>();
+
         /// <summary>旧版 boss-apply 目录（相对程序目录或绝对路径），用于收编计划任务/历史记录/登录态。</summary>
         public string LegacyDir = "..\\_automation\\boss-apply";
         /// <summary>启动时自动禁用旧的 BOSSTouDi-* 计划任务（避免和本程序重复投递）。</summary>
@@ -67,6 +95,30 @@ namespace AutoApply
         /// <summary>出问题时弹托盘气泡（需要人工登录/过验证码时）。</summary>
         public bool Notify = true;
         public bool WizardDone = false;
+
+        public static List<GreetCfg> DefaultGreetings()
+        {
+            var l = new List<GreetCfg>();
+            l.Add(new GreetCfg
+            {
+                Id = "A",
+                Name = "现状版（经验直达）",
+                Text = "您好，我有洗浴管理软件实施售后经验，懂MySQL和Linux，能看日志排查，可接受出差，想应聘贵司实施岗，期待和您聊聊。"
+            });
+            l.Add(new GreetCfg
+            {
+                Id = "B",
+                Name = "交付闭环版（独立把门店跑上线）",
+                Text = "您好，我做水疗/洗浴类管理软件的实施和售后：上门部署、数据初始化、现场培训、上线验收、后续运维都是我一个人跟下来的，MySQL 和日志排查没问题，也能长期出差。看到贵司在招实施，想聊聊。"
+            });
+            l.Add(new GreetCfg
+            {
+                Id = "C",
+                Name = "提问版（用问题换一次回复）",
+                Text = "您好，想请教一下：贵司实施岗现在主要交付哪类系统、出差大概什么频率？我做过水疗/洗浴类管理软件的实施与售后，部署、培训、验收都能独立完成，MySQL 和看日志排查也熟。"
+            });
+            return l;
+        }
 
         public static string[] DefaultCities()
         {
@@ -84,10 +136,49 @@ namespace AutoApply
             c.Sites.Add(new SiteCfg { Key = "q51", Name = "前程无忧", Script = "q51job.js", Url = "https://we.51job.com/pc/search?keyword=%E5%AE%9E%E6%96%BD%E5%B7%A5%E7%A8%8B%E5%B8%88", Match = "51job", Hue = 3, Minutes = 14, Max = 120, Pace = 9 });
             c.Windows.Add(new WindowCfg { Key = "am", Name = "上午场", StartHour = 9, StartMin = 30, EndHour = 10, EndMin = 30 });
             c.Windows.Add(new WindowCfg { Key = "pm", Name = "下午场", StartHour = 14, StartMin = 0, EndHour = 16, EndMin = 0 });
+            c.Greetings = DefaultGreetings();
+            c.GreetActive = "A";
+            c.GreetHistory.Add(new GreetSwitch { Id = "A", From = DateTime.Now });
             return c;
         }
 
+        /// <summary>某个时刻生效的招呼语版本；早于时间线起点的记录返回空串（= 无法归属）。</summary>
+        public string GreetAt(DateTime ts)
+        {
+            if (GreetHistory == null || GreetHistory.Count == 0) return "";
+            string id = "";
+            DateTime best = DateTime.MinValue;
+            for (int i = 0; i < GreetHistory.Count; i++)
+            {
+                var h = GreetHistory[i];
+                if (h == null) continue;
+                if (h.From <= ts && h.From >= best) { best = h.From; id = h.Id; }
+            }
+            return id;
+        }
+
+        public GreetCfg GreetById(string id)
+        {
+            if (Greetings == null) return null;
+            for (int i = 0; i < Greetings.Count; i++)
+                if (Greetings[i] != null && Greetings[i].Id == id) return Greetings[i];
+            return null;
+        }
+
+        /// <summary>切换当前版本，并把这次切换记进时间线（2 秒内重复点只覆盖最后一条）。</summary>
+        public void SetGreetActive(string id)
+        {
+            GreetActive = id;
+            if (GreetHistory == null) GreetHistory = new List<GreetSwitch>();
+            var now = DateTime.Now;
+            if (GreetHistory.Count > 0 && (now - GreetHistory[GreetHistory.Count - 1].From).TotalSeconds < 2)
+                GreetHistory[GreetHistory.Count - 1] = new GreetSwitch { Id = id, From = GreetHistory[GreetHistory.Count - 1].From };
+            else
+                GreetHistory.Add(new GreetSwitch { Id = id, From = now });
+        }
+
         // ---------- 持久化 ----------
+
         public static AppCfg Load(string path)
         {
             var c = TryRead(path);
@@ -97,6 +188,20 @@ namespace AutoApply
                 if (c.Windows == null || c.Windows.Count == 0) c.Windows = Default().Windows;
                 if (c.Cities == null) c.Cities = new List<string>();
                 if (c.Keywords == null || c.Keywords.Count == 0) c.Keywords = Default().Keywords;
+                if (c.Greetings == null || c.Greetings.Count == 0)
+                {
+                    // 老配置没有招呼语：以"从今天起 A 生效"作为时间线起点，历史记录不会被误归到某一版
+                    c.Greetings = DefaultGreetings();
+                    c.GreetHistory = new List<GreetSwitch>();
+                    c.GreetHistory.Add(new GreetSwitch { Id = "A", From = DateTime.Now });
+                    c.GreetActive = "A";
+                }
+                if (c.GreetHistory == null || c.GreetHistory.Count == 0)
+                {
+                    c.GreetHistory = new List<GreetSwitch>();
+                    c.GreetHistory.Add(new GreetSwitch { Id = string.IsNullOrEmpty(c.GreetActive) ? "A" : c.GreetActive, From = DateTime.Now });
+                }
+                if (string.IsNullOrEmpty(c.GreetActive)) c.GreetActive = c.GreetHistory[c.GreetHistory.Count - 1].Id;
                 return c;
             }
             var d = Default();

@@ -166,7 +166,7 @@ const DISMISS_BLOCK = `(() => {
 
 const LIMIT_RE = /还剩\s*0\s*次|次数已用完|今日沟通次数已达上限|沟通次数已用完|明日再来/;
 
-async function greetOne(c, idx) {
+async function greetOne(c, idx, job) {
   // 清掉上一次可能残留的“已向BOSS发送消息”弹窗 / 限额提示
   await ev(c, `(() => { const d=document.querySelector('.greet-boss-dialog'); if(d){const b=d.querySelector('a.cancel-btn, .close'); if(b) b.click();} return 'ok'; })()`);
   const leftover = await ev(c, DISMISS_BLOCK);
@@ -181,6 +181,12 @@ async function greetOne(c, idx) {
   })()`);
   if (r1 !== 'clicked') return { ok: false, why: 'nocard' };
   await sleep(1500);
+  // 正文闸门：卡片上只有标题，真正的活儿写在详情正文里。点了卡片再看正文，比事后"投了才发现不对"便宜。
+  const jd = await ev(c, `(() => { const b=document.querySelector('.job-detail-box'); return b ? (b.innerText||'').replace(/\\s+/g,' ').slice(0,900) : ''; })()`);
+  if (jd && jd.length > 40) {
+    const sc = SCORE.evaluate({ title: job && job.title, company: job && job.company, kw: job && job.kw, jd });
+    if (!sc.pass) return { ok: false, why: 'jd', score: sc.score, reason: sc.reason, jd };
+  }
   const st = await ev(c, `(() => {
     const b = document.querySelector('a.op-btn-chat');
     if (!b) return { btn: '' };
@@ -262,7 +268,15 @@ async function main() {
           }
           if (dry) { log('DRY would greet', j.title, j.company); seen.add(j.id); continue; }
           let r;
-          try { r = await greetOne(c, i); } catch (e) { log('greet err', j.title, e.message); errs++; continue; }
+          j.kw = kw;
+          try { r = await greetOne(c, i, j); } catch (e) { log('greet err', j.title, e.message); errs++; continue; }
+          if (r.why === 'jd') {
+            filtered++; seen.add(j.id); skipped++;
+            if (!skipSeen.has(j.id)) { skipSeen.add(j.id); skipRecord({ site: 'boss', id: j.id, title: j.title, company: j.company, salary: j.salary, loc: j.loc, city: city.name, kw, score: r.score, reason: r.reason, ts: new Date().toISOString() }); }
+            log('FILTER-JD ' + r.score + ' ' + r.reason + ' | ' + j.title + ' @ ' + j.company);
+            await sleep(pace * 1000);
+            continue;
+          }
           if (r.tip && /(?:安全验证|请完成验证|验证码|次数已用完|沟通次数|操作频繁|已达上限)/.test(r.tip)) { log('!! STOP:', r.tip); stop = 'limit'; break; }
           if (r.why === 'limit') { log('!! 今日BOSS沟通次数已用完:', r.dlg || ''); stop = 'limit'; break; }
           if (r.ok) {

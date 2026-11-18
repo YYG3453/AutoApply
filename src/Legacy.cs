@@ -226,9 +226,9 @@ namespace AutoApply
                 }
                 if (unknown.Count > 0)
                 {
-                    log("warn", "读不到任务计划程序（权限不足），没能自动关掉旧任务：" + string.Join("、", unknown.ToArray()));
-                    notify("没能自动关闭旧定时任务",
-                        "读不到任务计划程序（权限不足）。如果旧任务还在跑会和本程序撞车：请在「任务计划程序」里禁用 BOSSTouDi-Morning / BOSSTouDi-Afternoon，或右键以管理员身份运行本程序一次。");
+                    log("dim", "查不到这几个旧计划任务的状态（当前不是管理员）：" + string.Join("、", unknown.ToArray()));
+                    notify("旧定时任务状态未知",
+                        "当前没以管理员身份运行，读不到任务计划程序。如果这几个任务之前已经禁用过，就不用管；不确定的话，右键以管理员身份运行本程序一次，或打开「任务计划程序」看一眼 BOSSTouDi-Morning / BOSSTouDi-Afternoon 的状态。");
                 }
                 if (closed.Count > 0)
                     notify("已收编旧定时任务", "禁用了 " + closed.Count + " 个旧任务（" + string.Join("、", closed.ToArray()) + "），以后只由本程序投递");

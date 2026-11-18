@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -14,7 +14,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.8.1";
+        public const string Version = "1.8.2";
 
         /// <summary>--tray：启动后只呆在托盘里，不弹窗口（给计划任务用）。</summary>
         public bool StartInTray;
@@ -473,7 +473,17 @@ namespace AutoApply
             float fy = H - 28;
             using (var p = new Pen(T.LineSoft)) g.DrawLine(p, 214, fy, W, fy);
             string left = _toast.Length > 0 ? _toast : (Engine.Running ? "正在投递 · " + (Engine.CurrentSiteName ?? "") : "就绪 · " + Engine.TotalSentInRun() + " 个 / 本轮");
-            T.Draw(g, left, T.F(10.5f), _toast.Length > 0 ? T.Jade : T.Text3, 228, fy + 7);
+            var sf = T.F(10.5f);
+            // 提示文本可能是整句（比如"读不到任务计划程序…"），状态栏只有一行：放不下就截断加省略号，
+            // 否则会盖住左边的图例和右边的版本号。
+            float maxW = W - 228 - 190;
+            if (maxW > 80 && g.MeasureString(left, sf).Width > maxW)
+            {
+                while (left.Length > 6 && g.MeasureString(left + "…", sf).Width > maxW)
+                    left = left.Substring(0, left.Length - 1);
+                left = left.TrimEnd('，', '、', '。', ' ') + "…";
+            }
+            T.Draw(g, left, sf, _toast.Length > 0 ? T.Jade : T.Text3, 228, fy + 7);
             if (Engine.Running)
             {
                 float a = 0.35f + 0.65f * (float)((Math.Sin(_pulseT) + 1) / 2);

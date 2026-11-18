@@ -27,6 +27,12 @@ namespace AutoApply
         public int SkillBonusCap = 16;
         public int KwBonus = 8;
 
+        /// <summary>正文（JD）规则：BOSS / 智联 会先打开详情读正文再决定投不投。</summary>
+        public List<string> JdExclude = new List<string>();
+        public List<string> JdInclude = new List<string>();
+        public int JdBonus = 3;
+        public int JdBonusCap = 12;
+
         public static string FilePath(string dir) { return Path.Combine(dir, "rules.json"); }
 
         public static RulesCfg Default()
@@ -36,6 +42,8 @@ namespace AutoApply
             r.TitleExclude = new List<string> { "客服", "销售", "电话销售", "文员", "实习", "兼职", "普工", "司机", "仓管", "保洁", "保安", "收银" };
             r.CompanyBlacklist = new List<string> { "派遣", "外包", "劳务", "人力资源", "人力服务", "众包", "猎头" };
             r.SkillWords = new List<string> { "实施", "交付", "部署", "运维", "售后", "技术支持", "MES", "ERP", "SaaS", "WMS", "CRM", "数据库", "Linux", "驻场" };
+            r.JdExclude = new List<string> { "电话销售", "外呼", "电销", "电话邀约", "招生", "课程顾问", "保险代理人", "无底薪", "纯提成" };
+            r.JdInclude = new List<string> { "MySQL", "SQL", "Linux", "数据库", "部署", "驻场", "出差", "售后", "培训", "验收", "实施", "排查", "日志", "服务器" };
             return r;
         }
 
@@ -56,6 +64,10 @@ namespace AutoApply
                             if (r.TitleExclude == null) r.TitleExclude = new List<string>();
                             if (r.CompanyBlacklist == null) r.CompanyBlacklist = new List<string>();
                             if (r.SkillWords == null) r.SkillWords = new List<string>();
+                            if (r.JdExclude == null) r.JdExclude = new List<string>();
+                            if (r.JdInclude == null) r.JdInclude = new List<string>();
+                            if (r.JdBonus <= 0) r.JdBonus = 3;
+                            if (r.JdBonusCap <= 0) r.JdBonusCap = 12;
                             return r;
                         }
                     }
