@@ -1,4 +1,4 @@
-# Build the release folder + zip. ASCII only: Windows PowerShell 5.1 mangles non-ASCII without BOM.
+﻿# Build the release folder + zip. ASCII only: Windows PowerShell 5.1 mangles non-ASCII without BOM.
 param([string]$Version = "")
 if (-not $Version) {
     $m = Select-String -Path (Join-Path $PSScriptRoot "src\MainForm.cs") -Pattern 'Version = "([0-9.]+)"'
@@ -10,8 +10,10 @@ $root = $PSScriptRoot
 Set-Location $root
 
 Write-Host "== build exe"
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "build.ps1")
-if (-not (Test-Path (Join-Path $root "AutoApply.exe"))) { throw "build failed" }
+# 编到旁边的临时名：root 里的 AutoApply.exe 可能正被运行中的实例锁着（Windows 不允许覆盖正在执行的映像）
+$buildExe = "AutoApply.pkg.exe"
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "build.ps1") -Out $buildExe
+if (-not (Test-Path (Join-Path $root $buildExe))) { throw "build failed" }
 
 $name = "AutoApply-$Version-win-x64"
 $dist = Join-Path $root ("dist\" + $name)
@@ -19,7 +21,7 @@ if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
 New-Item -ItemType Directory $dist | Out-Null
 
 Write-Host "== copy app files"
-Copy-Item (Join-Path $root "AutoApply.exe") $dist
+Copy-Item (Join-Path $root $buildExe) (Join-Path $dist "AutoApply.exe")
 Copy-Item (Join-Path $root "README.md") $dist
 Copy-Item (Join-Path $root "LICENSE") $dist
 # config.json 是每台机器自己的设置（城市/关键词/招呼语），不进包：
