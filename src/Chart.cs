@@ -130,12 +130,13 @@ namespace AutoApply
 
         /// <summary>环形图。hoverIdx 的扇区会外扩并提亮；返回各扇区中心角（弧度），供标签定位。</summary>
         public static float[] Donut(Graphics g, PointF c, float rOut, float thickness,
-                                    float[] vals, Color[] cols, int hoverIdx)
+                                    float[] vals, Color[] cols, int hoverIdx, float appear = 1f)
         {
             float total = 0;
             for (int i = 0; i < vals.Length; i++) total += vals[i];
             if (total <= 0) total = 1;
 
+            float ap = appear < 0f ? 0f : (appear > 1f ? 1f : appear);
             float start = -90f;
             var mids = new float[vals.Length];
             for (int i = 0; i < vals.Length; i++)
@@ -147,13 +148,15 @@ namespace AutoApply
                 float r = rOut + (hv ? 2f : 0f);
                 var rect = new RectangleF(c.X - r + th / 2f, c.Y - r + th / 2f, (r - th / 2f) * 2f, (r - th / 2f) * 2f);
                 Color col = hv ? T.Mix(cols[i], Color.White, 0.22f) : cols[i];
-                if (sweep > 0.1f)
+                if (hoverIdx >= 0 && !hv) col = T.Alpha(col, 110);      // 悬停时其余扇区压暗
+                float drawn = sweep * ap;
+                if (drawn > 0.1f)
                 {
                     using (var p = new Pen(col, th))
                     {
                         p.StartCap = LineCap.Flat; p.EndCap = LineCap.Flat;
                         // 小间隙，接近 ECharts 的 borderWidth 效果
-                        g.DrawArc(p, rect, start + 0.9f, Math.Max(0.5f, sweep - 1.8f));
+                        g.DrawArc(p, rect, start + 0.9f, Math.Max(0.5f, drawn - 1.8f));
                     }
                 }
                 start += sweep;
@@ -191,7 +194,7 @@ namespace AutoApply
         /// </summary>
         public static PointF[][] MultiLine(Graphics g, RectangleF plot, float[][] series, Color[] cols,
                                            string[] names, string[] labels, int hoverIdx, bool grid,
-                                           float[] scales = null)
+                                           float[] scales = null, float appear = 1f)
         {
             if (series == null || series.Length == 0)
             {
@@ -224,6 +227,7 @@ namespace AutoApply
             }
 
             float step = n > 1 ? plot.Width / (n - 1) : 0;
+            float ap = appear < 0f ? 0f : (appear > 1f ? 1f : appear);
             var outPts = new PointF[series.Length][];
             for (int k = 0; k < series.Length; k++)
             {
@@ -231,7 +235,7 @@ namespace AutoApply
                 if (vals == null || vals.Length == 0) { outPts[k] = new PointF[0]; continue; }
                 var pts = new PointF[vals.Length];
                 for (int i = 0; i < vals.Length; i++)
-                    pts[i] = new PointF(plot.X + step * i, plot.Bottom - plot.Height * (vals[i] / max));
+                    pts[i] = new PointF(plot.X + step * i, plot.Bottom - plot.Height * (vals[i] / max) * ap);
                 outPts[k] = pts;
 
                 Color col = cols != null && k < cols.Length ? cols[k] : T.Jade;
@@ -246,7 +250,7 @@ namespace AutoApply
                             area.CloseFigure();
                             using (var lg = new LinearGradientBrush(
                                        new RectangleF(plot.X, plot.Y - 1, Math.Max(2f, plot.Width), plot.Height + 2),
-                                       T.Alpha(col, 120), T.Alpha(col, 6), 90f))
+                                       T.Alpha(col, (int)(120 * ap)), T.Alpha(col, (int)(6 * ap)), 90f))
                                 g.FillPath(lg, area);
                             area.Dispose();
                         }
@@ -266,6 +270,12 @@ namespace AutoApply
             if (hoverIdx >= 0 && hoverIdx < n)
             {
                 float hx = plot.X + step * hoverIdx;
+                // 悬停的那一列先铺一条淡带，鼠标在哪一目了然
+                float bandW = n > 1 ? step : plot.Width;
+                float bx = Math.Max(plot.X, hx - bandW / 2f);
+                float br = Math.Min(plot.Right, hx + bandW / 2f);
+                using (var sb = new SolidBrush(T.Alpha(T.Text, 12)))
+                    g.FillRectangle(sb, bx, plot.Y, Math.Max(1f, br - bx), plot.Height);
                 using (var p0 = new Pen(T.Alpha(T.Text3, 120), 1)) { p0.DashStyle = DashStyle.Dot; g.DrawLine(p0, hx, plot.Y, hx, plot.Bottom); }
 
                 var rows = new List<KeyValuePair<string, float>>();
@@ -338,7 +348,7 @@ namespace AutoApply
 
         /// <summary>竖向柱状图（圆顶）。返回每根柱的矩形，供命中测试。</summary>
         public static RectangleF[] VBars(Graphics g, RectangleF plot, float[] vals, string[] labels,
-                                        Color col, string[] tipKeys, int hoverIdx, bool grid)
+                                        Color col, string[] tipKeys, int hoverIdx, bool grid, float appear = 1f)
         {
             if (vals == null || vals.Length == 0) return new RectangleF[0];
             float max = 1f;
@@ -362,16 +372,21 @@ namespace AutoApply
             int n = vals.Length;
             float slot = plot.Width / n;
             float bw = Math.Min(38f, slot * 0.56f);
+            float ap = appear < 0f ? 0f : (appear > 1f ? 1f : appear);
             var rects = new RectangleF[n];
+            bool anyHover = hoverIdx >= 0 && hoverIdx < n;
             for (int i = 0; i < n; i++)
             {
-                float h = plot.Height * (vals[i] / max);
-                if (vals[i] > 0 && h < 3f) h = 3f;
+                float hFull = plot.Height * (vals[i] / max);
+                if (vals[i] > 0 && hFull < 3f) hFull = 3f;
+                float h = hFull * ap;
+                if (vals[i] > 0 && ap > 0f && h < 1.5f) h = 1.5f;
                 float x = plot.X + slot * i + (slot - bw) / 2f;
                 var r = new RectangleF(x, plot.Bottom - h, bw, h);
-                rects[i] = r;
+                rects[i] = new RectangleF(x, plot.Bottom - hFull, bw, hFull);    // 命中用完整高度，别跟着动画抖
                 bool hv = i == hoverIdx;
                 Color c0 = hv ? T.Mix(col, Color.White, 0.18f) : col;
+                if (anyHover && !hv) c0 = T.Alpha(c0, 105);                      // 其余柱子压暗
                 if (h > 0.5f)
                 {
                     using (var lg = new LinearGradientBrush(new RectangleF(r.X, r.Y, Math.Max(2f, r.Width), Math.Max(2f, r.Height)),
@@ -381,7 +396,8 @@ namespace AutoApply
                 if (labels != null && i < labels.Length)
                 {
                     var lr = new RectangleF(plot.X + slot * i, plot.Bottom + 7, slot, 15);
-                    T.TextC(g, labels[i], T.F(9f), hv ? T.Text : T.Text3, lr);
+                    Color lc = hv ? T.Text : (anyHover ? T.Alpha(T.Text3, 120) : T.Text3);
+                    T.TextC(g, labels[i], T.F(9f), lc, lr);
                 }
                 if (hv)
                 {

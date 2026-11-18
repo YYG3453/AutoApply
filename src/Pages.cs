@@ -16,6 +16,7 @@ namespace AutoApply
         public static readonly Font Small = T.F(11f);
         public static readonly Font Tiny = T.F(10f);
         public static readonly Font Big = T.Num(31f, FontStyle.Bold);
+        public static readonly Font Mid = T.Num(22f, FontStyle.Bold);
         public static readonly Font Num = T.Num(13f, FontStyle.Bold);
         public static readonly Font Mono = T.Mono(11.5f);
     }
@@ -163,7 +164,8 @@ namespace AutoApply
                 var r = new RectangleF(32 + i * (cw + gap), y, cw, kpiH);
                 T.Card(g, r, 14f);
                 T.Draw(g, labels[i], Fonts.Small, T.Text2, r.X + 16, r.Y + 14);
-                T.Draw(g, values[i], Fonts.Big, vcols[i], r.X + 15, r.Y + 34);
+                bool longVal = g.MeasureString(values[i], Fonts.Big).Width > r.Width - 30;
+                T.Draw(g, values[i], longVal ? Fonts.Mid : Fonts.Big, vcols[i], r.X + 15, r.Y + (longVal ? 40 : 34));
                 T.Draw(g, subs[i], Fonts.Tiny, T.Text3, r.X + 16, r.Y + 68);
                 Chip(g, new RectangleF(r.Right - 44, r.Y + 12, 28, 28), i == 5 ? 3 : (i == 2 || i == 3 ? 2 : (i == 4 ? 1 : i)));
             }
@@ -234,7 +236,8 @@ namespace AutoApply
             string[] snames = { "投递", "回复" };
             float[] sscale = { 1f, kRep };
             _trendPts = Chart.MultiLine(g, tplot, series, scols, snames,
-                                        compact ? null : dayLabels.ToArray(), _hoverDay, !compact, sscale);
+                                        compact ? null : dayLabels.ToArray(), _hoverDay, !compact, sscale, AppearK);
+            _dayKeys = dayKeys;
             // 汇总一行
             int sumSent = 0, sumRep = 0;
             for (int i = 0; i < sentVals.Count; i++) sumSent += (int)sentVals[i];
@@ -247,7 +250,7 @@ namespace AutoApply
             // ---------- 平台对比 ----------
             var platCard = new RectangleF(32, top + r1 + gap, leftW, r2);
             T.Card(g, platCard, 16f);
-            Head(g, platCard, "平台对比 · 累计", "横条 = 投递量，亮段 = 有回复");
+            Head(g, platCard, "平台对比 · 累计", "横条 = 投递量，亮段 = 回复占比 · 点一下看明细");
             var sites = App.Cfg.Sites;
             float rowH = Math.Min(30f, (platCard.Height - 52f) / Math.Max(1, sites.Count));
             float nameW = 92f;
@@ -255,35 +258,43 @@ namespace AutoApply
             float barW = platCard.Width - 40 - nameW - 150f;
             int maxTotal = 1;
             for (int i = 0; i < sites.Count; i++) maxTotal = Math.Max(maxTotal, st.CountTotal(sites[i].Key));
+            _platRows = new RectangleF[sites.Count];
+            _platKeys = new string[sites.Count];
             for (int i = 0; i < sites.Count; i++)
             {
                 var s = sites[i];
                 float ry = platCard.Y + 44 + i * rowH;
                 var sz = new RectangleF(platCard.X + 20, ry, nameW - 8, rowH - 6);
+                bool hotRow = _hoverPlat == i;
+                if (hotRow) T.FillRound(g, new RectangleF(platCard.X + 14, ry - 2, platCard.Width - 28, rowH - 2), 8f, T.HoverSoft);
                 T.Dot(g, sz.X + 4, sz.Y + sz.Height / 2f, 3.6f, s.Enabled ? Hue(s.Hue) : T.Text3);
-                T.Draw(g, s.Name, Fonts.Tiny, s.Enabled ? T.Text2 : T.Text3, sz.X + 13, sz.Y + 2);
+                T.Draw(g, s.Name, Fonts.Tiny, s.Enabled ? (hotRow ? T.Text : T.Text2) : T.Text3, sz.X + 13, sz.Y + 2);
 
                 int tot = st.CountTotal(s.Key);
                 int rep = st.CountReplied(s.Key);
                 var bar = new RectangleF(barX, ry + 6, barW, Math.Max(8f, rowH - 16f));
                 T.FillRound(g, bar, bar.Height / 2f, T.BtnHover2);
-                float wTot = barW * (tot / (float)maxTotal);
+                float wTot = barW * (tot / (float)maxTotal) * AppearK;
+                int dim = (_hoverPlat >= 0 && !hotRow) ? 96 : 255;
                 if (tot > 0)
                 {
                     var fill = new RectangleF(bar.X, bar.Y, Math.Max(bar.Height, wTot), bar.Height);
                     using (var lg = new LinearGradientBrush(new RectangleF(fill.X, fill.Y, Math.Max(2f, fill.Width), Math.Max(2f, fill.Height)),
-                                                           T.Alpha(Hue(s.Hue), 190), T.Alpha(Hue(s.Hue), 105), 0f))
+                                                           T.Alpha(Hue(s.Hue), 190 * dim / 255), T.Alpha(Hue(s.Hue), 105 * dim / 255), 0f))
                         T.FillRound(g, fill, bar.Height / 2f, lg);
                 }
-                if (rep > 0)
+                if (rep > 0 && tot > 0)
                 {
-                    float wRep = Math.Max(6f, wTot * Math.Min(1f, rep / (float)Math.Max(1, tot)) * 3.2f);
-                    wRep = Math.Min(wTot, Math.Max(6f, wRep));
+                    // 亮段 = 有回复的那部分投递，按真实比例画；再窄也给 4px，否则 1% 的回复率根本看不见
+                    float wRep = Math.Min(Math.Max(4f, wTot), Math.Max(4f, wTot * Math.Min(1f, rep / (float)tot)));
                     var fill2 = new RectangleF(bar.X, bar.Y, wRep, bar.Height);
-                    T.FillRound(g, fill2, bar.Height / 2f, T.Mix(Hue(s.Hue), Color.White, 0.45f));
+                    T.FillRound(g, fill2, bar.Height / 2f, T.Alpha(T.Mix(Hue(s.Hue), Color.White, 0.55f), dim));
                 }
-                T.TextR(g, tot.ToString(), Fonts.Tiny, T.Text2, platCard.Right - 96, ry + 3);
-                T.TextR(g, rep > 0 ? "回复 " + rep : "—", Fonts.Tiny, rep > 0 ? T.Jade : T.Text3, platCard.Right - 20, ry + 3);
+                T.TextR(g, tot.ToString(), Fonts.Tiny, T.Text2, platCard.Right - 118, ry + 3);
+                T.TextR(g, rep > 0 ? "回复 " + rep + " · " + (rep * 100f / tot).ToString("0.0") + "%" : "—",
+                        Fonts.Tiny, rep > 0 ? T.Jade : T.Text3, platCard.Right - 20, ry + 3);
+                _platRows[i] = new RectangleF(platCard.X + 14, ry - 3, platCard.Width - 28, rowH - 2);
+                _platKeys[i] = s.Key;
             }
 
             // ---------- 评分分布 + 今日时段 ----------
@@ -308,7 +319,7 @@ namespace AutoApply
             var histPlot = new RectangleF(histCard.X + 38, histCard.Y + 46, histCard.Width - 58, Math.Max(30f, histCard.Height - 46 - 30));
             _histPlot = histPlot;
             _histBars = Chart.VBars(g, histPlot, new float[] { bcount[0], bcount[1], bcount[2], bcount[3], bcount[4] },
-                                     buckets, T.Gold, buckets, _hoverHist, true);
+                                     buckets, T.Gold, buckets, _hoverHist, true, AppearK);
 
             var hourCard = new RectangleF(32 + halfW + gap, histCard.Y, halfW, r3);
             T.Card(g, hourCard, 16f);
@@ -328,7 +339,7 @@ namespace AutoApply
             for (int i = 0; i < hourLabels.Length; i++) { hourLabels[i] = (hFrom + i) + ""; hourTips[i] = (hFrom + i) + ":00"; }
             var hourPlot = new RectangleF(hourCard.X + 38, hourCard.Y + 46, hourCard.Width - 58, Math.Max(30f, hourCard.Height - 46 - 30));
             _hourPlot = hourPlot;
-            _hourBars = Chart.VBars(g, hourPlot, hourVals, hourLabels, T.Blue, hourTips, _hoverHour, true);
+            _hourBars = Chart.VBars(g, hourPlot, hourVals, hourLabels, T.Blue, hourTips, _hoverHour, true, AppearK);
 
             // ---------- 本次运行 ----------
             var run = new RectangleF(W - 32 - rightW, top, rightW, runH);
@@ -405,6 +416,7 @@ namespace AutoApply
                 if (cityTop.Count == 0)
                 {
                     _donutVals = new float[0];
+                    _donutNames = new List<string>();
                     T.Draw(g, "今天还没有记录", Fonts.Small, T.Text3, cityCard.X + 20, cityCard.Y + 56);
                 }
                 else
@@ -423,7 +435,8 @@ namespace AutoApply
                     _donutR = Math.Min(Math.Min(cityCard.Width * 0.20f, 52f), Math.Max(24f, rNeed));
                     _donutC = new PointF(cityCard.X + 20 + _donutR + 8, cityCard.Y + 46 + _donutR);
                     _donutVals = cvals.ToArray();
-                    Chart.Donut(g, _donutC, _donutR, 14f, _donutVals, cols.ToArray(), _hoverCity);
+                    _donutNames = names;
+                    Chart.Donut(g, _donutC, _donutR, 14f, _donutVals, cols.ToArray(), _hoverCity, AppearK);
                     T.TextC(g, st.Today.ToString(), Fonts.Body, T.Text,
                             new RectangleF(_donutC.X - 60, _donutC.Y - 10, 120, 20));
 
@@ -440,6 +453,7 @@ namespace AutoApply
                 }
             }
             if (cityCard.Height < 100f) _donutVals = new float[0];
+            PaintAppear(g, W, Hh);          // 切页面时整页从底色里浮出来，别"啪"一下
         }
 
         private PointF[][] _trendPts = new PointF[0][];
@@ -455,31 +469,81 @@ namespace AutoApply
         private RectangleF[] _hourBars = new RectangleF[0];
         private RectangleF _hourPlot;
         private int _hoverHour = -1;
+        private List<string> _dayKeys = new List<string>();
+        private List<string> _donutNames = new List<string>();
+        private RectangleF[] _platRows = new RectangleF[0];
+        private string[] _platKeys = new string[0];
+        private int _hoverPlat = -1;
+        private string _pressEl = "";
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
             var p = T.LP(e.Location);
             int hd = _trendPts.Length > 0 ? Chart.HitMulti(_trendPts, p.X, 26f) : -1;
-            if (_trendPts.Length > 0 && p.Y < _trendPlot.Y - 10) hd = -1;
+            // 只在画图区里算（以前只挡了上边，鼠标飘到卡片底部也在高亮最后一天）
+            if (hd >= 0 && (!_trendPlot.Contains(p) || p.Y > _trendPlot.Bottom + 18)) hd = -1;
             int hc = _donutVals.Length > 0 ? Chart.HitDonut(_donutC, _donutR + 4f, 20f, _donutVals, p) : -1;
             int hh = _histBars.Length > 0 ? Chart.HitBars(_histBars, _histPlot, p) : -1;
             int ho = _hourBars.Length > 0 ? Chart.HitBars(_hourBars, _hourPlot, p) : -1;
-            if (hd != _hoverDay || hc != _hoverCity || hh != _hoverHist || ho != _hoverHour)
+            int hp = -1;
+            for (int i = 0; i < _platRows.Length; i++) if (_platRows[i].Contains(p)) { hp = i; break; }
+            if (hd != _hoverDay || hc != _hoverCity || hh != _hoverHist || ho != _hoverHour || hp != _hoverPlat)
             {
-                _hoverDay = hd; _hoverCity = hc; _hoverHist = hh; _hoverHour = ho;
+                _hoverDay = hd; _hoverCity = hc; _hoverHist = hh; _hoverHour = ho; _hoverPlat = hp;
                 Invalidate();
             }
+            Cursor = ElementAt(p) != null ? Cursors.Hand : Cursors.Default;
         }
 
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
-            if (_hoverDay != -1 || _hoverCity != -1 || _hoverHist != -1 || _hoverHour != -1)
+            _pressEl = "";
+            if (_hoverDay != -1 || _hoverCity != -1 || _hoverHist != -1 || _hoverHour != -1 || _hoverPlat != -1)
             {
-                _hoverDay = -1; _hoverCity = -1; _hoverHist = -1; _hoverHour = -1;
+                _hoverDay = -1; _hoverCity = -1; _hoverHist = -1; _hoverHour = -1; _hoverPlat = -1;
                 Invalidate();
             }
+            Cursor = Cursors.Default;
+        }
+
+        /// <summary>鼠标下面是哪个能点开的元素：day:2026-11-17 / site:boss / city:杭州。</summary>
+        private string ElementAt(PointF p)
+        {
+            if (_trendPlot.Contains(p) && _trendPts.Length > 1)
+            {
+                int i = Chart.HitMulti(_trendPts, p.X, 26f);
+                if (i >= 0 && i < _dayKeys.Count) return "day:" + _dayKeys[i];
+            }
+            if (_donutVals.Length > 0)
+            {
+                int ci = Chart.HitDonut(_donutC, _donutR + 4f, 20f, _donutVals, p);
+                if (ci >= 0 && ci < _donutNames.Count && _donutNames[ci] != "其他") return "city:" + _donutNames[ci];
+            }
+            for (int i = 0; i < _platRows.Length; i++)
+                if (_platRows[i].Contains(p)) return "site:" + _platKeys[i];
+            return null;
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            _pressEl = ElementAt(T.LP(e.Location));
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            var el = ElementAt(T.LP(e.Location));
+            var was = _pressEl;
+            _pressEl = "";
+            base.OnMouseUp(e);
+            if (el == null || el != was) return;
+            // 从仪表盘下钻时把别的筛选清掉：点"某一天"就该看那天全部平台，
+            // 不然上一次点过的平台还留着，两个条件一夹经常是 0 条。
+            if (el.StartsWith("day:")) { App.ShowRecords(el.Substring(4), "", ""); return; }
+            if (el.StartsWith("site:")) { App.ShowRecords("", el.Substring(5), ""); return; }
+            if (el.StartsWith("city:")) { App.ShowRecords("", "", el.Substring(5)); return; }
         }
 
         private void DrawPrimary(Graphics g, RectangleF r, string text, string id, bool enabled)

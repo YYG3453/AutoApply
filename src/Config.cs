@@ -167,7 +167,15 @@ namespace AutoApply
             if (GreetHistory != null)
                 for (int i = GreetHistory.Count - 1; i >= 0; i--)
                     if (GreetHistory[i] == null || GreetHistory[i].Id == id) GreetHistory.RemoveAt(i);
-            if (GreetActive == id) GreetActive = (Greetings != null && Greetings.Count > 0) ? Greetings[0].Id : "";
+            if (GreetActive == id)
+            {
+                GreetActive = (Greetings != null && Greetings.Count > 0) ? Greetings[0].Id : "";
+                // 删掉的是正在用的那版：时间线要补一条"从此刻起换成回落的那版"，
+                // 否则这之后的投递会被算到时间线上一条（已删的则是空白段）头上。
+                if (GreetHistory == null) GreetHistory = new List<GreetSwitch>();
+                if (GreetActive.Length > 0 && (GreetHistory.Count == 0 || GreetHistory[GreetHistory.Count - 1].Id != GreetActive))
+                    GreetHistory.Add(new GreetSwitch { Id = GreetActive, From = DateTime.Now });
+            }
         }
 
 
@@ -219,13 +227,30 @@ namespace AutoApply
         /// <summary>切换当前版本，并把这次切换记进时间线（2 秒内重复点只覆盖最后一条）。</summary>
         public void SetGreetActive(string id)
         {
-            GreetActive = id;
             if (GreetHistory == null) GreetHistory = new List<GreetSwitch>();
+            GreetActive = id;
+            // 已经是时间线最后一版：不再追加，否则之前那段时间的投递全变成"无归属"
+            if (GreetHistory.Count > 0 && GreetHistory[GreetHistory.Count - 1].Id == id) return;
             var now = DateTime.Now;
             if (GreetHistory.Count > 0 && (now - GreetHistory[GreetHistory.Count - 1].From).TotalSeconds < 2)
                 GreetHistory[GreetHistory.Count - 1] = new GreetSwitch { Id = id, From = GreetHistory[GreetHistory.Count - 1].From };
             else
                 GreetHistory.Add(new GreetSwitch { Id = id, From = now });
+        }
+
+        /// <summary>时间线整理：连续的同一版只留最早那条（删版本会留下 A@10:00、A@10:30 这种空档）。</summary>
+        public void NormalizeGreetHistory()
+        {
+            if (GreetHistory == null) return;
+            var keep = new List<GreetSwitch>();
+            for (int i = 0; i < GreetHistory.Count; i++)
+            {
+                var h = GreetHistory[i];
+                if (h == null) continue;
+                if (keep.Count > 0 && keep[keep.Count - 1].Id == h.Id) continue;
+                keep.Add(h);
+            }
+            GreetHistory = keep;
         }
 
         // ---------- 持久化 ----------
@@ -254,6 +279,7 @@ namespace AutoApply
                 }
                 if (string.IsNullOrEmpty(c.GreetActive)) c.GreetActive = c.GreetHistory[c.GreetHistory.Count - 1].Id;
                 c.MigrateGreetings();      // v1.8.2 内置的 B/C 清掉，A 换成平台里真实那句
+                c.NormalizeGreetHistory(); // 顺手把历史里连着两条同版本的垃圾记录并掉
                 return c;
             }
             var d = Default();

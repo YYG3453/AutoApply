@@ -25,6 +25,9 @@ namespace AutoApply
         protected string Pressed = "";
         protected bool Animating;
 
+        /// <summary>页面出现动画：0 = 刚切过来，1 = 完全显示。约 220ms。</summary>
+        protected float Appear = 1f;
+
         protected class Hit
         {
             public string Id;
@@ -42,6 +45,33 @@ namespace AutoApply
 
         protected void AddHit(string id, RectangleF r) { Hits.Add(new Hit { Id = id, Rect = r }); }
         protected void ClearHits() { Hits.Clear(); }
+
+        /// <summary>切到本页时调用：内容从底色里浮出来，图表自己按 AppearK 长出来。</summary>
+        public void StartAppear()
+        {
+            Appear = 0f;
+            Invalidate();
+            if (!_anim.Enabled) _anim.Start();
+        }
+
+        /// <summary>0..1 的三次缓出。线性看着像卡顿，缓出才有"弹一下"的感觉。</summary>
+        protected float AppearK
+        {
+            get
+            {
+                float a = Appear < 0f ? 0f : (Appear > 1f ? 1f : Appear);
+                return 1f - (1f - a) * (1f - a) * (1f - a);
+            }
+        }
+
+        /// <summary>出现动画的收尾：拿底色盖一层，越盖越薄。必须画在本页内容之后。</summary>
+        protected void PaintAppear(Graphics g, float w, float h)
+        {
+            if (Appear >= 0.999f) return;
+            int a = (int)(255 * (1f - AppearK));
+            if (a <= 2) return;
+            using (var b = new SolidBrush(Color.FromArgb(a, T.Bg))) g.FillRectangle(b, 0, 0, w, h);
+        }
 
         protected float H(string id)
         {
@@ -62,6 +92,12 @@ namespace AutoApply
         private void StepAnim()
         {
             bool busy = false;
+            if (Appear < 1f)
+            {
+                Appear += 0.11f;                 // 16ms × ~14 帧 ≈ 220ms
+                if (Appear > 1f) Appear = 1f;
+                busy = true;
+            }
             var keys = new List<string>(HoverTo.Keys);
             foreach (var k in keys)
             {

@@ -2,6 +2,9 @@
 const fs = require('fs');
 const path = require('path');
 
+// 数据在 DataDir（程序会通过 AUTOAPPLY_DATA 传进来），不是脚本所在的 scripts\。
+const ROOT = process.env.AUTOAPPLY_DATA || __dirname;
+
 const SOURCES = [
   { file: 'state.jsonl', name: 'BOSS直聘' },
   { file: 'state-zp.jsonl', name: '智联招聘' },
@@ -11,7 +14,7 @@ const SOURCES = [
 
 function readRows(f) {
   try {
-    return fs.readFileSync(path.join(__dirname, f), 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    return fs.readFileSync(path.join(ROOT, f), 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
   } catch { return []; }
 }
 
@@ -41,5 +44,5 @@ for (const r of all.sort((a, b) => new Date(a.ts) - new Date(b.ts)).slice(-120).
   const t = new Date(r.ts).toLocaleString('zh-CN', { hour12: false });
   md += `| ${t} | ${r.site} | ${r.city || ''} | ${(r.title || '').replace(/\|/g, '/')} | ${(r.company || '').replace(/\|/g, '/')} | ${(r.salary || '').replace(/\|/g, '/')} |\n`;
 }
-fs.writeFileSync(path.join(__dirname, 'report.md'), md);
+fs.writeFileSync(path.join(ROOT, 'report.md'), md);
 console.log('report.md written, total=' + all.length);

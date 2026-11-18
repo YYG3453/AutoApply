@@ -91,19 +91,42 @@ namespace AutoApply
             // 6) 启用的站今天一条都没投出去
             if (cfg != null)
             {
-                var zero = new List<string>();
-                for (int i = 0; i < cfg.Sites.Count; i++)
+                // 今天还没到"该出活"的时候：第一个启用时段结束前、且今天还没跑过任何一轮。
+                // 凌晨打开程序时这条以前永远是红的，红多了就不当回事了。
+                int firstEnd = int.MaxValue;
+                for (int i = 0; i < cfg.Windows.Count; i++)
+                    if (cfg.Windows[i].Enabled) firstEnd = Math.Min(firstEnd, cfg.Windows[i].EndMins);
+                int nowM = DateTime.Now.Hour * 60 + DateTime.Now.Minute;
+                bool ranToday = false;
+                if (st.Runs != null)
+                    for (int i = 0; i < st.Runs.Count; i++)
+                        if (st.Runs[i].Ts.Date == DateTime.Today) { ranToday = true; break; }
+
+                if (!ranToday && nowM < firstEnd)
                 {
-                    var s = cfg.Sites[i];
-                    if (!s.Enabled) continue;
-                    if (st.CountToday(s.Key) == 0) zero.Add(s.Name);
+                    list.Add(new CheckItem
+                    {
+                        Ok = true,
+                        Title = "启用的站今天都有产出",
+                        Detail = "还没到第一个投递时段的收工时间，先不算这一项"
+                    });
                 }
-                list.Add(new CheckItem
+                else
                 {
-                    Ok = zero.Count == 0,
-                    Title = "启用的站今天都有产出",
-                    Detail = zero.Count == 0 ? "四站今天都有投放" : ("今天 0 条：" + string.Join("、", zero.ToArray()) + "（去「平台健康」看标签页与登录）")
-                });
+                    var zero = new List<string>();
+                    for (int i = 0; i < cfg.Sites.Count; i++)
+                    {
+                        var s = cfg.Sites[i];
+                        if (!s.Enabled) continue;
+                        if (st.CountToday(s.Key) == 0) zero.Add(s.Name);
+                    }
+                    list.Add(new CheckItem
+                    {
+                        Ok = zero.Count == 0,
+                        Title = "启用的站今天都有产出",
+                        Detail = zero.Count == 0 ? "四站今天都有投放" : ("今天 0 条：" + string.Join("、", zero.ToArray()) + "（去「平台健康」看标签页与登录）")
+                    });
+                }
             }
             return list;
         }

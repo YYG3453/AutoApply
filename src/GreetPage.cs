@@ -630,7 +630,7 @@ namespace AutoApply
             if (id.StartsWith("use:"))
             {
                 var vid = id.Substring(4);
-                if (App.Cfg.GreetActive == vid) return;
+                if (App.Cfg.GreetActive == vid) { App.Toast(vid + " 版已经是当前版本了"); return; }
                 if (!App.CanEdit) { App.Toast("投递进行中，跑完再切版本，否则这一轮算不清归属"); return; }
                 App.Cfg.SetGreetActive(vid);
                 App.SaveCfg();

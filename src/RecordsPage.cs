@@ -23,6 +23,8 @@ namespace AutoApply
         private float _scroll;
         private int _builtCount = -1;
         private int _hoverRow = -1;
+        private string _day = "";        // yyyy-MM-dd：从仪表盘点某一天下来时只看这天
+        private string _city = "";       // 从城市环形下来的
 
         private const float RowH = 30f;
         private const float HeadH = 30f;
@@ -57,6 +59,8 @@ namespace AutoApply
             {
                 var r = all[i];
                 if (_site.Length > 0 && r.SiteKey != _site) continue;
+                if (_day.Length > 0 && (!r.HasTs || r.Ts.ToString("yyyy-MM-dd") != _day)) continue;
+                if (_city.Length > 0 && r.City != _city) continue;
                 if (from > DateTime.MinValue)
                 {
                     if (!r.HasTs || r.Ts < from) continue;
@@ -96,6 +100,15 @@ namespace AutoApply
             _builtCount = App.Records == null ? 0 : App.Records.All.Count;
             Rebuild();
             Invalidate();
+        }
+
+        /// <summary>从别的页面下钻：只筛这一天 / 这个平台 / 这个城市。传 null 表示这一项不动，传 "" 表示清掉。</summary>
+        public void SetFilter(string day, string site, string city)
+        {
+            if (day != null) { _day = day; if (day.Length > 0) _range = 3; }
+            if (site != null) _site = site;
+            if (city != null) _city = city;
+            ResetAndRefresh();
         }
 
         // ---------------- 绘制 ----------------
@@ -160,6 +173,19 @@ namespace AutoApply
             if (st != null && st.BadLines > 0) sub += " · 跳过无法解析的行 " + st.BadLines;
             T.Draw(g, sub, Fonts.Small, T.Text2, 32, 55);
 
+            // 下钻进来的筛选单独标出来，点 ✕ 就撤掉——不然用户不知道自己在看"被筛过"的列表
+            float fx = 32 + g.MeasureString(sub, Fonts.Small).Width + 16f;
+            if (_day.Length > 0)
+            {
+                Chip(g, new RectangleF(fx, 53, 136, 21), "clr:day", "日期 " + _day.Substring(5) + "  ✕", true, T.Blue);
+                fx += 142;
+            }
+            if (_city.Length > 0)
+            {
+                Chip(g, new RectangleF(fx, 53, 112, 21), "clr:city", "城市 " + _city + "  ✕", true, T.Gold);
+                fx += 118;
+            }
+
             // 工具栏
             float ty = 96f;
             float x = 32f;
@@ -167,7 +193,7 @@ namespace AutoApply
             for (int i = 0; i < ranges.Length; i++)
             {
                 var r = new RectangleF(x, ty, 78f, 30f);
-                Chip(g, r, "range:" + i, ranges[i], _range == i, T.Jade);
+                Chip(g, r, "range:" + i, ranges[i], _range == i && _day.Length == 0, T.Jade);
                 x += 84f;
             }
             x += 14f;
@@ -218,7 +244,8 @@ namespace AutoApply
 
             if (_view.Count == 0)
             {
-                string msg = (_range == 0) ? "今天还没有投递记录" : "这个筛选条件下没有记录";
+                string msg = _day.Length > 0 ? "这一天没有投递记录"
+                           : ((_range == 0) ? "今天还没有投递记录" : "这个筛选条件下没有记录");
                 T.TextC(g, msg, Fonts.Small, T.Text3, new RectangleF(body.X, body.Y + Math.Min(60f, listH / 3f), body.Width, 24f));
                 T.TextC(g, "换个时间范围或平台再看", Fonts.Tiny, T.Text3, new RectangleF(body.X, body.Y + Math.Min(84f, listH / 3f) + 6f, body.Width, 20f));
             }
@@ -270,9 +297,12 @@ namespace AutoApply
             if (id.StartsWith("range:"))
             {
                 _range = int.Parse(id.Substring(6));
+                _day = "";
                 ResetAndRefresh();
                 return;
             }
+            if (id == "clr:day") { _day = ""; ResetAndRefresh(); return; }
+            if (id == "clr:city") { _city = ""; ResetAndRefresh(); return; }
             if (id.StartsWith("site:"))
             {
                 _site = id.Substring(5);

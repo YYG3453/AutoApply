@@ -14,7 +14,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.8.4";
+        public const string Version = "1.8.5";
 
         /// <summary>--tray：启动后只呆在托盘里，不弹窗口（给计划任务用）。</summary>
         public bool StartInTray;
@@ -70,6 +70,25 @@ namespace AutoApply
             Cfg = AppCfg.Load(Paths.CfgPath.Length > 0 ? Paths.CfgPath : Paths.CfgPath);
             Engine = new Engine(BaseDir) { Cfg = Cfg };
             Records = RecordStore.Load(Engine.ScriptDir);
+            // 重启时把"今天已经跑过的时段"标上：否则 10:00 重启会让上午场从 09:30 再投一遍，
+            // 平台额度白烧一轮，还可能在两轮之间把同一批岗位点第二遍。
+            try
+            {
+                string todayKey = DateTime.Now.ToString("yyyy-MM-dd");
+                foreach (var w in Cfg.Windows)
+                {
+                    string tag = w.Name + " " + w.Range;
+                    for (int i = 0; i < Records.Runs.Count; i++)
+                    {
+                        var rr = Records.Runs[i];
+                        if (rr.Window != tag) continue;
+                        if (!rr.Ts.ToString("yyyy-MM-dd").Equals(todayKey)) continue;
+                        _ranWindows.Add(todayKey + ":" + w.Key);
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex) { Program.Trace("ranWindows preload failed: " + ex.Message); }
 
             // 主题：--theme day|night 优先（渲染截图用），否则用配置里保存的
             var rawArgs = Environment.GetCommandLineArgs();
@@ -350,20 +369,15 @@ namespace AutoApply
             return n;
         }
 
+        /// <summary>下一次自动开始的时间。已经过了今天的点就带"明天"，不然只看时分分不清是哪天。</summary>
         public string NextRunText()
         {
             if (!Cfg.ScheduleEnabled) return "—";
-            var now = DateTime.Now; int m = now.Hour * 60 + now.Minute;
-            WindowCfg best = null; int bestD = int.MaxValue;
-            foreach (var w in Cfg.Windows)
-            {
-                if (!w.Enabled) continue;
-                int d = w.StartMins - m;
-                if (d < 0) d += 24 * 60;
-                if (d < bestD) { bestD = d; best = w; }
-            }
-            if (best == null) return "—";
-            return string.Format("{0:00}:{1:00}", best.StartHour, best.StartMin);
+            DateTime t;
+            var w = NextWindow(out t);
+            if (w == null) return "—";
+            string hhmm = string.Format("{0:00}:{1:00}", w.StartHour, w.StartMin);
+            return t.Date == DateTime.Today ? hhmm : "明天 " + hhmm;
         }
 
         public string NextRunSub()
@@ -372,7 +386,35 @@ namespace AutoApply
             var now = DateTime.Now; int m = now.Hour * 60 + now.Minute;
             foreach (var w in Cfg.Windows)
                 if (w.Enabled && m >= w.StartMins && m < w.EndMins) return "本时段进行中";
-            return "今天到点自动开始";
+            DateTime t;
+            var nw = NextWindow(out t);
+            if (nw == null) return "没有启用的时段";
+            int mins = (int)Math.Round((t - now).TotalMinutes);
+            if (mins <= 1) return "1 分钟内自动开始";
+            if (mins < 60) return mins + " 分钟后自动开始";
+            return (t.Date == DateTime.Today ? "今天 " : "明天 ") + t.ToString("HH:mm") + " 自动开始";
+        }
+
+        /// <summary>
+        /// 最近的一场：正在跑的这一场不算"下次"，已过的顺延到明天。
+        /// 旧写法只看"几点几分"，过了今天的点还写"今天到点自动开始"，跨天的时候是错的。
+        /// </summary>
+        private WindowCfg NextWindow(out DateTime start)
+        {
+            var now = DateTime.Now;
+            int m = now.Hour * 60 + now.Minute;
+            WindowCfg best = null;
+            DateTime bestT = DateTime.MaxValue;
+            foreach (var w in Cfg.Windows)
+            {
+                if (!w.Enabled) continue;
+                var t = now.Date.AddMinutes(w.StartMins);
+                bool inThisWindow = m >= w.StartMins && m < w.EndMins;
+                if (t <= now || inThisWindow) t = t.AddDays(1);
+                if (t < bestT) { bestT = t; best = w; }
+            }
+            start = best == null ? DateTime.MinValue : bestT;
+            return best;
         }
 
         public SiteResult ResultOf(string key)
@@ -437,12 +479,32 @@ namespace AutoApply
 
         public void GotoPage(string key) { ShowPage(key); }
 
+        /// <summary>从仪表盘下钻到投递明细：带上筛选条件，并在页面上留一个能点掉的筛选标签。</summary>
+        public void ShowRecords(string day, string site, string city)
+        {
+            Page p;
+            if (_pages.TryGetValue("records", out p))
+            {
+                var rp = p as RecordsPage;
+                if (rp != null) rp.SetFilter(day, site, city);
+            }
+            ShowPage("records");
+        }
+
+        private T PageOf<T>(string key) where T : Page
+        {
+            Page p;
+            return _pages.TryGetValue(key, out p) ? p as T : null;
+        }
+
         internal void ShowPage(string key)
         {
             _page = key;
             _rail.Selected = key;
             _rail.Invalidate();
             foreach (var kv in _pages) kv.Value.Visible = kv.Key == key;
+            Page pg;
+            if (_pages.TryGetValue(key, out pg)) pg.StartAppear();
             if (key == "log") _log.View.BringToFront();
         }
 
