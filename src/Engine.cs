@@ -352,6 +352,14 @@ namespace AutoApply
                 if (sb.Length == 0) return;
                 File.AppendAllText(Path.Combine(ScriptDir, "runs.jsonl"), sb.ToString(), new System.Text.UTF8Encoding(false));
                 Program.Trace("runs.jsonl appended rows=" + Results.Count);
+                // 每轮结束后顺手只读采集一次「对方回没回」，失败不影响投递结果
+                try
+                {
+                    L("sys", "=== 采集回复状态（只读，不发消息）");
+                    RunNodeTool("replies.js", "--max 30", 180000);
+                    Program.Trace("replies collected");
+                }
+                catch (Exception ex2) { Program.Trace("replies failed: " + ex2.Message); }
             }
             catch (Exception ex) { L("warn", "写运行记录失败：" + ex.Message); }
         }

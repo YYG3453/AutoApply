@@ -31,18 +31,22 @@ namespace AutoApply
 
             var rec = App.Records;
 
-            // ---------- 三张小卡 ----------
+            // ---------- 四张小卡 ----------
             float top = 88f, ch = 96f, gap = 16f;
-            float cw = (W - 64f - gap * 2f) / 3f;
+            float cw = (W - 64f - gap * 3f) / 4f;
             int skippedToday = rec == null ? 0 : rec.SkippedToday;
             int platformFails = 0;
             if (rec != null) foreach (var kv in rec.StopByReason) platformFails += kv.Value;
             double lastMins = rec == null ? 0 : rec.LastRunMins;
             string lastWhen = rec == null ? "" : rec.LastRunTime;
+            int replied = rec == null ? 0 : rec.RepliedCount;
+            int interviews = rec == null ? 0 : rec.InterviewCount;
+            int convs = rec == null ? 0 : rec.Replies.Count;
 
             Kpi(g, new RectangleF(32, top, cw, ch), "今日被拦", skippedToday.ToString(), "规则判掉的岗位", T.Jade);
-            Kpi(g, new RectangleF(32 + cw + gap, top, cw, ch), "平台失败", platformFails.ToString(), "撞限额 / 验证码 / 未登录", T.Warn);
-            Kpi(g, new RectangleF(32 + (cw + gap) * 2f, top, cw, ch), "最近一轮", lastMins > 0 ? lastMins.ToString("0") + " 分钟" : "—", lastWhen.Length > 0 ? "开始于 " + lastWhen : "还没有运行记录", T.Gold);
+            Kpi(g, new RectangleF(32 + (cw + gap), top, cw, ch), "平台失败", platformFails.ToString(), "撞限额 / 验证码 / 未登录", T.Warn);
+            Kpi(g, new RectangleF(32 + (cw + gap) * 2f, top, cw, ch), "有回复", replied.ToString(), "共 " + convs + " 个会话", T.Blue);
+            Kpi(g, new RectangleF(32 + (cw + gap) * 3f, top, cw, ch), "约面试", interviews.ToString(), convs > 0 ? "从 " + convs + " 个会话里筛出" : "还没采集过会话", T.Gold);
 
             // ---------- 评分分布 + 失败原因 ----------
             float midTop = top + ch + gap;
@@ -238,7 +242,8 @@ namespace AutoApply
             for (int i = 0; i < order.Count; i++) maxM = Math.Max(maxM, mins[order[i]]);
 
             float y = card.Y + 50;
-            float rowH = Math.Min(30f, Math.Max(20f, (card.Height - 66f) / Math.Max(1, order.Count)));
+            bool hasReplies = rec.Replies.Count > 0;
+            float rowH = Math.Min(30f, Math.Max(20f, (card.Height - (hasReplies ? 168f : 66f)) / Math.Max(1, order.Count)));
             float barMax = card.Width - 330f;
             for (int i = 0; i < order.Count; i++)
             {
@@ -254,6 +259,47 @@ namespace AutoApply
                 T.Draw(g, mins[k].ToString("0.#") + " 分", Fonts.Small, T.Text, track.Right + 10, y + 3);
                 T.Draw(g, sent[k] + " 条 · " + NameOfStop(stop[k].Length > 0 ? stop[k] : ""), Fonts.Tiny, T.Text3, track.Right + 72, y + 4);
                 y += rowH;
+            }
+
+            DrawReplyList(g, card, y + 10);
+        }
+
+        /// <summary>每站耗时卡的下半部分：最近有动静的会话（约面优先，其次要简历/普通回复）。</summary>
+        private void DrawReplyList(Graphics g, RectangleF card, float y)
+        {
+            var rec = App.Records;
+            if (rec == null || rec.Replies.Count == 0) return;
+            var picks = new List<ReplyRec>();
+            for (int i = 0; i < rec.Replies.Count; i++)
+            {
+                var r = rec.Replies[i];
+                if (r.Status == "interview" || r.Status == "askResume") picks.Add(r);
+            for (int a = 0; a < picks.Count; a++)
+                for (int b = picks.Count - 1; b > a; b--)
+                    if (picks[b].Interview && !picks[b - 1].Interview)
+                    { var tmp = picks[b]; picks[b] = picks[b - 1]; picks[b - 1] = tmp; }
+            }
+            if (picks.Count == 0) return;
+            float room = card.Bottom - y - 10f;
+            int max = (int)Math.Min(3f, Math.Max(0f, room / 22f));
+            if (max <= 0) return;
+
+            T.Draw(g, "最近有动静的会话", Fonts.Small, T.Text2, card.X + 20, y);
+            T.Draw(g, "共 " + rec.RepliedCount + " 个有回复 · " + rec.InterviewCount + " 个约面", Fonts.Tiny, T.Text3, card.X + 140, y + 2);
+            y += 21;
+            for (int i = 0; i < picks.Count && i < max; i++)
+            {
+                var r = picks[i];
+                var dot = new RectangleF(card.X + 22, y + 6, 7, 7);
+                using (var b = new SolidBrush(r.Interview ? T.Gold : T.Blue)) g.FillEllipse(b, dot);
+                string who = r.Company.Length > 0 ? r.Company : r.Name;
+                if (who.Length > 20) who = who.Substring(0, 20) + "…";
+                T.Draw(g, r.StatusText, Fonts.Small, r.Interview ? T.Gold : T.Blue, card.X + 36, y);
+                T.Draw(g, who, Fonts.Small, T.Text, card.X + 100, y);
+                string tail = r.Job.Length > 0 ? r.Job : r.LastText;
+                if (tail.Length > 34) tail = tail.Substring(0, 34) + "…";
+                T.Draw(g, tail, Fonts.Tiny, T.Text3, card.X + 340, y + 1);
+                y += 22;
             }
         }
     }

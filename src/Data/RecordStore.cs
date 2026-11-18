@@ -121,6 +121,15 @@ namespace AutoApply
         public Dictionary<string, double> AvgMinsBySite = new Dictionary<string, double>();
         public Dictionary<string, int> RunsByDay = new Dictionary<string, int>();
 
+        /// <summary>会话回复事实（state-replies.jsonl，由 scripts\replies.js 只读采集）。</summary>
+        public readonly List<ReplyRec> Replies = new List<ReplyRec>();
+        public int RepliedCount, InterviewCount, AskResumeCount, RejectedCount;
+        public Dictionary<string, int> RepliedBySite = new Dictionary<string, int>();
+        public Dictionary<string, int> InterviewBySite = new Dictionary<string, int>();
+
+        public int CountReplied(string key) { int v; return RepliedBySite.TryGetValue(key, out v) ? v : 0; }
+        public int CountInterview(string key) { int v; return InterviewBySite.TryGetValue(key, out v) ? v : 0; }
+
         public int CountToday(string key) { int v; return TodayBySite.TryGetValue(key, out v) ? v : 0; }
         public int CountTotal(string key) { int v; return TotalBySite.TryGetValue(key, out v) ? v : 0; }
 
@@ -189,6 +198,7 @@ namespace AutoApply
             // 被规则过滤的记录（可能不存在，那时 Skips 为空）
             st.LoadSkips(scriptDir, day);
             st.LoadRuns(scriptDir);
+            st.LoadReplies(scriptDir);
 
             // 新的在前；没有时间戳的沉到最后
             st.All.Sort(delegate (JobRec a, JobRec b) { return b.Ts.CompareTo(a.Ts); });
@@ -428,5 +438,87 @@ namespace AutoApply
             var v = line.Substring(start, i - start).Trim();
             return v == "null" ? "" : v;
         }
+
+        /// <summary>读 state-replies.jsonl：回复/约面的只读事实（replies.js 采集）。</summary>
+        private void LoadReplies(string scriptDir)
+        {
+            var path = Path.Combine(scriptDir, "state-replies.jsonl");
+            if (!File.Exists(path)) return;
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var rd = new StreamReader(fs, Encoding.UTF8))
+                {
+                    string line;
+                    while ((line = rd.ReadLine()) != null)
+                    {
+                        if (line.Length < 2) continue;
+                        var r = new ReplyRec();
+                        r.Site = Str(line, "site");
+                        r.Name = Str(line, "name");
+                        r.Company = Str(line, "company");
+                        r.Job = Str(line, "job");
+                        r.City = Str(line, "city");
+                        r.Salary = Str(line, "salary");
+                        r.LastText = Str(line, "theLast");
+                        r.Status = Str(line, "status");
+                        if (r.Status.Length == 0) r.Status = "none";
+                        var ts = Str(line, "ts");
+                        DateTimeOffset dto;
+                        if (ts.Length > 0 && DateTimeOffset.TryParse(ts, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out dto))
+                        { r.Ts = dto.LocalDateTime; r.HasTs = true; }
+                        if (r.Name.Length == 0 && r.Company.Length == 0) continue;
+                        Replies.Add(r);
+
+                        int v;
+                        RepliedBySite.TryGetValue(r.Site, out v);
+                        if (r.Replied) { RepliedCount++; RepliedBySite[r.Site] = v + 1; }
+                        int w;
+                        InterviewBySite.TryGetValue(r.Site, out w);
+                        if (r.Interview) { InterviewCount++; InterviewBySite[r.Site] = w + 1; }
+                        if (r.Status == "askResume") AskResumeCount++;
+                        if (r.Status == "rejected") RejectedCount++;
+                    }
+                }
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>一条会话回复事实（state-replies.jsonl）。</summary>
+    internal class ReplyRec
+    {
+        public string Site = "";
+        public string Name = "";
+        public string Company = "";
+        public string Job = "";
+        public string City = "";
+        public string Salary = "";
+        public string LastText = "";
+        /// <summary>interview 约面试 / askResume 要简历 / replied 普通回复 / rejected 不合适 / notfit 兼职外包 / none 未回复</summary>
+        public string Status = "none";
+        public DateTime Ts;
+        public bool HasTs;
+
+        public bool Replied { get { return Status != "none"; } }
+        public bool Interview { get { return Status == "interview"; } }
+
+        public string StatusText
+        {
+            get
+            {
+                switch (Status)
+                {
+                    case "interview": return "约面试";
+                    case "askResume": return "要简历";
+                    case "replied": return "已回复";
+                    case "rejected": return "不合适";
+                    case "notfit": return "兼职/外包";
+                    default: return "未回复";
+                }
+            }
+        }
+
+        public string TimeText { get { return HasTs ? Ts.ToString("MM-dd HH:mm") : ""; } }
     }
 }
