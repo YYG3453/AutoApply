@@ -66,6 +66,7 @@ namespace AutoApply
         public bool LegacyTakeover = true;
         /// <summary>出问题时弹托盘气泡（需要人工登录/过验证码时）。</summary>
         public bool Notify = true;
+        public bool WizardDone = false;
 
         public static string[] DefaultCities()
         {

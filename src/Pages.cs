@@ -756,6 +756,20 @@ namespace AutoApply
             T.Draw(g, "若某个平台提示需要验证（滑块 / 扫码），点「打开浏览器」手动处理一次即可。", Fonts.Small, T.Text2, c2.X + 20, c2.Y + 74);
 
             DrawSmallGhost(g, new RectangleF(c2.Right - 150, c2.Y + 60, 132, 32), "打开程序目录", "dir");
+
+            var c3 = new RectangleF(32, 540, W - 64, 128);
+            T.Card(g, c3, 16f);
+            T.Draw(g, "版本与更新", Fonts.H2, T.Text, c3.X + 20, c3.Y + 14);
+            string ver = "当前版本 v" + MainForm.Version;
+            if (Updater.Latest.Length > 0)
+                ver += Updater.IsNewer(Updater.Latest, MainForm.Version) ? ("    ·    最新 v" + Updater.Latest + "（有新版本）") : "    ·    已是最新";
+            else if (Updater.Checked) ver += "    ·    检查失败（网络或仓库未发布 Release）";
+            else ver += "    ·    尚未检查";
+            T.Draw(g, ver, Fonts.Small, Updater.Latest.Length > 0 && Updater.IsNewer(Updater.Latest, MainForm.Version) ? T.Warn : T.Text2, c3.X + 20, c3.Y + 46);
+            T.Draw(g, "更新方式：下载新的 zip 解压覆盖 exe；browser-profile 与 scripts 里的记录不会被覆盖。", Fonts.Tiny, T.Text3, c3.X + 20, c3.Y + 76);
+            DrawSmallGhost(g, new RectangleF(c3.Right - 150, c3.Y + 62, 132, 32), "检查更新", "chk");
+            if (Updater.Latest.Length > 0 && Updater.IsNewer(Updater.Latest, MainForm.Version))
+                DrawSmallGhost(g, new RectangleF(c3.Right - 300, c3.Y + 62, 132, 32), "打开下载页", "dl");
         }
 
         private void DrawSmallGhost(Graphics g, RectangleF r, string text, string id)
@@ -769,7 +783,31 @@ namespace AutoApply
 
         protected override void OnHit(string id)
         {
-            if (id == "dir") Process.Start("explorer.exe", App.BaseDir);
+            if (id == "dir")
+            {
+                Process.Start("explorer.exe", App.BaseDir);
+                return;
+            }
+            if (id == "chk")
+            {
+                App.Toast("正在检查更新…");
+                Updater.CheckAsync(delegate (string v)
+                {
+                    try
+                    {
+                        App.BeginInvoke(new Action(delegate
+                        {
+                            if (v.Length == 0) App.Toast("检查失败（网络不通，或仓库还没发布 Release）");
+                            else if (Updater.IsNewer(v, MainForm.Version)) App.Toast("发现新版本 v" + v + "，点「打开下载页」");
+                            else App.Toast("已是最新版本 v" + MainForm.Version);
+                            Invalidate();
+                        }));
+                    }
+                    catch { }
+                });
+                return;
+            }
+            if (id == "dl") { try { Process.Start(Updater.Page); } catch { App.Toast("打不开浏览器，手动访问 " + Updater.Page); } }
         }
     }
 }

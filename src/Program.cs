@@ -198,6 +198,7 @@ namespace AutoApply
                     return;
                 }
                 var f = new MainForm();
+                if (tooling || joinedBefore.IndexOf("--run-now", StringComparison.OrdinalIgnoreCase) >= 0) f.SuppressWizard = true;
                 Trace("form created, running");
                 var joined = string.Join(" ", args);
                 if (joined.IndexOf("--test-hit", StringComparison.OrdinalIgnoreCase) >= 0)

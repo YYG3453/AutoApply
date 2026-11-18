@@ -14,13 +14,14 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.6.0";
+        public const string Version = "1.7.0";
 
         /// <summary>--tray：启动后只呆在托盘里，不弹窗口（给计划任务用）。</summary>
         public bool StartInTray;
 
         /// <summary>--run-now：启动后立刻跑一轮（自测/命令行触发用）。</summary>
         public bool StartRunNow;
+        public bool SuppressWizard;
         public readonly string BaseDir;
         public AppCfg Cfg;
         public Engine Engine;
@@ -186,6 +187,23 @@ namespace AutoApply
             var legacy = new Timer { Interval = 1200 };
             legacy.Tick += (s, e) => { legacy.Stop(); legacy.Dispose(); StartLegacyTakeover(); };
             legacy.Start();
+
+            // 首次运行向导：等窗体真正可见后再弹（在 Shown 里开模态窗容易卡住）
+            var wizt = new Timer { Interval = 900 };
+            wizt.Tick += (s, e) =>
+            {
+                wizt.Stop();
+                wizt.Dispose();
+                if (SuppressWizard || StartInTray || Cfg.WizardDone) return;
+                try
+                {
+                    using (var wf = new WizardForm(Cfg, Engine.ScriptDir)) wf.ShowDialog(this);
+                    Cfg = AppCfg.Load(Path.Combine(BaseDir, "config.json"));
+                    _dash.Invalidate();
+                }
+                catch (Exception ex) { Program.Trace("wizard failed: " + ex.Message); }
+            };
+            wizt.Start();
         }
 
         private void Ui(Action a)
