@@ -92,11 +92,14 @@ namespace AutoApply
         private void StepAnim()
         {
             bool busy = false;
+            bool full = false;
+            float x0 = float.MaxValue, y0 = float.MaxValue, x1 = float.MinValue, y1 = float.MinValue;
             if (Appear < 1f)
             {
                 Appear += 0.11f;                 // 16ms × ~14 帧 ≈ 220ms
                 if (Appear > 1f) Appear = 1f;
                 busy = true;
+                full = true;                     // 整页在淡入，必须整页重画
             }
             var keys = new List<string>(HoverTo.Keys);
             foreach (var k in keys)
@@ -106,10 +109,27 @@ namespace AutoApply
                 float nxt = cur + (to - cur) * 0.28f;
                 if (Math.Abs(to - nxt) < 0.01f) nxt = to; else busy = true;
                 HoverCur[k] = nxt;
+                if (Math.Abs(nxt - cur) < 0.0005f) continue;
+                // 悬停动画只脏它自己那块按钮：整页 20ms × 60fps 会白烧掉一个核。
+                bool found = false;
+                for (int i = 0; i < Hits.Count; i++)
+                {
+                    if (Hits[i].Id != k) continue;
+                    found = true;
+                    var r = Hits[i].Rect;
+                    if (r.X < x0) x0 = r.X;
+                    if (r.Y < y0) y0 = r.Y;
+                    if (r.Right > x1) x1 = r.Right;
+                    if (r.Bottom > y1) y1 = r.Bottom;
+                }
+                if (!found) full = true;         // 找不到矩形就只能整页重画，别画出残影
             }
             Animating = busy;
             if (!busy) _anim.Stop();
-            Invalidate();
+            if (full || x0 > x1) { Invalidate(); return; }
+            float m = 8f * T.S;                  // 逻辑 8px 余量，盖住描边和阴影
+            Invalidate(new Rectangle((int)(x0 * T.S - m), (int)(y0 * T.S - m),
+                (int)((x1 - x0) * T.S + m * 2), (int)((y1 - y0) * T.S + m * 2)));
         }
 
         protected override void OnMouseMove(MouseEventArgs e)

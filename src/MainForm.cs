@@ -14,7 +14,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.8.5";
+        public const string Version = "1.8.6";
 
         /// <summary>--tray：启动后只呆在托盘里，不弹窗口（给计划任务用）。</summary>
         public bool StartInTray;
@@ -60,8 +60,39 @@ namespace AutoApply
         private NotifyIcon _tray;
         private bool _ready;
 
+
+        // v1.8.6：窗口圆角交给 DWM（Win11 22000+ 原生圆角，和爱奇艺/资源管理器同一套），
+        // 老系统没有这个属性，退回给窗口设一个圆角 Region。
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
         [DllImport("user32.dll")] private static extern bool ReleaseCapture();
         [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ApplyCorners();
+        }
+
+        private void ApplyCorners()
+        {
+            try
+            {
+                int pref = 2;                       // DWMWCP_ROUND
+                // 边框色：Win11 默认会画一条 1px 浅色边，深色主题下很扎眼；染成窗口底色就看不见了
+                int border = (T.Bg.R) | (T.Bg.G << 8) | (T.Bg.B << 16);
+                DwmSetWindowAttribute(Handle, 34, ref border, sizeof(int));
+                if (Environment.OSVersion.Version.Build >= 22000 &&
+                    DwmSetWindowAttribute(Handle, 33, ref pref, sizeof(int)) == 0) return;
+            }
+            catch { }
+            try
+            {
+                using (var path = T.Round(new RectangleF(0, 0, Width, Height), 12f))
+                    Region = new Region(path);
+            }
+            catch { }
+        }
 
         public MainForm()
         {
@@ -106,12 +137,17 @@ namespace AutoApply
             T.SetNight(theme != "day");
             Program.Trace("theme resolved = '" + theme + "' cfg='" + Cfg.Theme + "' night=" + T.Night + " bg=" + T.Bg.ToArgb().ToString("X8"));
 
-            FormBorderStyle = FormBorderStyle.None;
+            // v1.8.6：保留系统边框样式（Sizable → WS_THICKFRAME），再用 WM_NCCALCSIZE 把非客户区清零。
+            // 这样窗口在 Win11 上才算"有框窗口"，DWM 才会给圆角 + 投影；
+            // 纯 WS_POPUP（FormBorderStyle.None）加上 DWMWA 圆角属性是不生效的（实测仍是直角）。
+            FormBorderStyle = FormBorderStyle.Sizable;
             StartPosition = FormStartPosition.CenterScreen;
             Shown += (s, e) =>
             {
                 if (StartRunNow)
                     BeginInvoke(new Action(delegate { try { StartRunManual(); } catch (Exception ex) { Program.Trace("run-now delegate throw: " + ex.Message); } }));
+                // DWM 的圆角/边框属性在窗口真正合成之后再设一次才稳（HandleCreated 时还太早）
+                BeginInvoke(new Action(delegate { ApplyCorners(); }));
                 if (!StartInTray) return;
                 WindowState = FormWindowState.Minimized;
                 Hide();
@@ -559,9 +595,17 @@ namespace AutoApply
         private const int WM_NCHITTEST = 0x0084;
         private const int HTCAPTION = 2;
 
+        private const int WM_NCCALCSIZE = 0x0083;
+
         /// <summary>无边框窗口：顶部 44px 与四周 6px 边缘都当作标题栏，按住即可拖动。</summary>
         protected override void WndProc(ref Message m)
         {
+            // 把非客户区清零：客户区铺满整个窗口，标题栏/边框由我们自己画
+            if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
+            {
+                m.Result = IntPtr.Zero;
+                return;
+            }
             if (m.Msg == WM_NCHITTEST)
             {
                 var cp = PointToClient(Page.ScreenPoint(m.LParam));

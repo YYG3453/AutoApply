@@ -9,18 +9,33 @@ namespace AutoApply
     /// <summary>
     /// 平台健康：四站标签页 / 登录态 / 验证码一屏看完，异常可一键重开。
     /// 只读检查，不改账号任何设置。
+    ///
+    /// v1.8.6 起这里有一道硬规矩：**OnPaint 里绝不做网络 I/O**。
+    /// 以前每次重绘都要同步问三次 CDP（ChromeAlive / Tabs / ChromeVersion），
+    /// Chrome 没开时代理探测 + 超时能把一次重绘拖到 4 秒，鼠标一动就整窗卡死。
+    /// 现在改由后台每 4 秒刷一次缓存，绘制只读缓存。
     /// </summary>
     internal class HealthPage : Page
     {
         private readonly Dictionary<string, SiteHealth> _h = new Dictionary<string, SiteHealth>();
         private int _busy;
-        private bool _started;
+        private bool _checkedOnce;
         private string _summary = "";
-        private int _hover;
+
+        // ---- CDP 快照（后台线程写，绘制线程读）----
+        private readonly object _gate = new object();
+        private bool _chrome;
+        private string _chromeVer = "";
+        private List<string> _tabs = new List<string>();
+        private string _snapAt = "";
+        private int _probing;
+        private readonly System.Windows.Forms.Timer _watch;
 
         public HealthPage(MainForm app) : base(app)
         {
             BackColor = T.Bg;
+            _watch = new System.Windows.Forms.Timer { Interval = 4000 };
+            _watch.Tick += delegate { RefreshSnapshot(); };
         }
 
         public override void RefreshTheme()
@@ -34,6 +49,63 @@ namespace AutoApply
             try { App.BeginInvoke(a); } catch { }
         }
 
+        /// <summary>页面可见才轮询；切走就停，别在后台白问。</summary>
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (!Visible) { _watch.Stop(); return; }
+            RefreshSnapshot();
+            _watch.Start();
+            if (!_checkedOnce)
+            {
+                _checkedOnce = true;
+                CheckAll();
+            }
+        }
+
+        /// <summary>问一次 CDP：Chrome 在不在、版本、所有标签页。走后台线程，带 1.2 秒超时。</summary>
+        private void RefreshSnapshot()
+        {
+            if (Interlocked.CompareExchange(ref _probing, 1, 0) != 0) return;
+            Health.Port = App.Cfg.Port;
+            Health.ScriptDir = App.Engine.ScriptDir;
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    bool alive = Health.ChromeAlive();
+                    string ver = alive ? Health.ChromeVersion() : "";
+                    List<string> tabs = alive ? Health.Tabs() : new List<string>();
+                    lock (_gate)
+                    {
+                        _chrome = alive;
+                        _chromeVer = ver;
+                        _tabs = tabs;
+                        _snapAt = DateTime.Now.ToString("HH:mm:ss");
+                    }
+                }
+                catch { }
+                finally
+                {
+                    Volatile.Write(ref _probing, 0);
+                    Ui(delegate { Invalidate(); });
+                }
+            });
+        }
+
+        /// <summary>取一份快照给绘制用（锁只圈住拷贝，不圈绘制）。</summary>
+        private void Snapshot(out bool chrome, out string ver, out List<string> tabs, out string at)
+        {
+            lock (_gate)
+            {
+                chrome = _chrome;
+                ver = _chromeVer;
+                tabs = _tabs;
+                at = _snapAt;
+            }
+            if (tabs == null) tabs = new List<string>();
+        }
+
         public void CheckAll()
         {
             if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return;
@@ -44,6 +116,25 @@ namespace AutoApply
             {
                 try
                 {
+                    // 调试端口没连上时，四站挨个问一遍要 4×1.2 秒超时；
+                    // 直接一次判定，卡片立刻显示"没连上"，用户点「重开」才去开浏览器。
+                    if (!Health.ChromeAlive())
+                    {
+                        lock (_h)
+                        {
+                            _h.Clear();
+                            for (int i = 0; i < sites.Count; i++)
+                                _h[sites[i].Key] = new SiteHealth
+                                {
+                                    Key = sites[i].Key,
+                                    Name = sites[i].Name,
+                                    Note = "没连上浏览器调试端口",
+                                    Checked = DateTime.Now.ToString("HH:mm:ss")
+                                };
+                        }
+                        _summary = "浏览器没连上：点「重开」会顺手开起来";
+                        return;
+                    }
                     int issues = 0;
                     for (int i = 0; i < sites.Count; i++)
                     {
@@ -78,7 +169,7 @@ namespace AutoApply
                     _summary = s.Name + "：" + h.Note;
                 }
                 catch (Exception ex) { _summary = "重开失败：" + ex.Message; }
-                finally { Volatile.Write(ref _busy, 0); Ui(delegate { Invalidate(); }); }
+                finally { Volatile.Write(ref _busy, 0); Ui(delegate { Invalidate(); }); RefreshSnapshot(); }
             });
         }
 
@@ -116,19 +207,20 @@ namespace AutoApply
             Ghost(g, new RectangleF(W - 452, 26, 108, 32), "全部检查", "health:check", T.Jade);
             Ghost(g, new RectangleF(W - 334, 26, 108, 32), "全部重开", "health:reopenall", T.Text2);
 
-            if (!_started) { _started = true; CheckAll(); }
-
-            // 顶部 KPI
-            bool chrome = Health.ChromeAlive();
-            List<string> tabs = Health.Tabs();
+            // 顶部 KPI —— 全部读缓存，不在这里发任何网络请求
+            bool chrome;
+            string ver;
+            List<string> tabs;
+            string at;
+            Snapshot(out chrome, out ver, out tabs, out at);
             int issues = 0;
-            foreach (var s in App.Cfg.Sites) { var h = Get(s.Key); if (h != null && h.Note != "正常") issues++; }
+            foreach (var s in App.Cfg.Sites) { var hh = Get(s.Key); if (hh != null && hh.Note != "正常") issues++; }
             float kw = (W - 64f - 3 * 14f) / 4f;
             float ky = 100f, kh = 96f;
-            Kpi(g, new RectangleF(32, ky, kw, kh), "CDP 端口 " + App.Cfg.Port, chrome ? "已连接" : "连不上",
-                chrome ? T.Jade : T.Danger, "浏览器调试通道");
-            Kpi(g, new RectangleF(32 + kw + 14, ky, kw, kh), "Chrome", chrome ? Health.ChromeVersion() : "—",
-                chrome ? T.Text : T.Text3, chrome ? "连接正常" : "点「打开浏览器」");
+            Kpi(g, new RectangleF(32, ky, kw, kh), "CDP 端口 " + App.Cfg.Port, chrome ? "已连接" : "未连接",
+                chrome ? T.Jade : T.Danger, chrome ? "浏览器调试通道正常" : "点「全部检查」或先把浏览器打开");
+            Kpi(g, new RectangleF(32 + kw + 14, ky, kw, kh), "Chrome", chrome && ver.Length > 0 ? ver : "—",
+                chrome ? T.Text : T.Text3, chrome ? "连接正常" : "还没连上调试端口");
             Kpi(g, new RectangleF(32 + (kw + 14) * 2, ky, kw, kh), "标签页", tabs.Count.ToString(),
                 T.Text, App.Cfg.Sites.Count + " 站需要各自的页面");
             Kpi(g, new RectangleF(32 + (kw + 14) * 3, ky, kw, kh), "待处理", issues.ToString(),
@@ -168,8 +260,10 @@ namespace AutoApply
                 T.Draw(g, "最近一轮", Fonts.Small, T.Text3, x + 36, ly);
                 T.Draw(g, LastRunOf(s.Key), Fonts.Small, T.Text2, x + 110, ly);
 
-                if (h != null && h.Note.Length > 0 && h.Note != "正常")
-                    T.Draw(g, h.Note, Fonts.Tiny, h.Captcha ? T.Danger : T.Warn, x + 36, y + chh - 34);
+                string note = h != null && h.Note.Length > 0 && h.Note != "正常" ? h.Note : "";
+                if (note.Length == 0 && !chrome) note = "还没连上浏览器调试端口";
+                if (note.Length > 0)
+                    T.Draw(g, note, Fonts.Tiny, (h != null && h.Captcha) ? T.Danger : T.Warn, x + 36, y + chh - 34);
 
                 Ghost(g, new RectangleF(x + cw - 176, y + chh - 40, 72, 28), "检查", "health:check:" + s.Key, T.Text2);
                 Ghost(g, new RectangleF(x + cw - 96, y + chh - 40, 72, 28), "重开", "health:reopen:" + s.Key, T.Jade);
@@ -178,13 +272,34 @@ namespace AutoApply
             }
         }
 
+        /// <summary>KPI 卡：数字用大号数字字体，文字（"已连接"/版本号）用小一号，别撑破卡片。</summary>
         private void Kpi(Graphics g, RectangleF r, string label, string value, Color vc, string sub)
         {
             T.Card(g, r);
             T.Draw(g, label, Fonts.Small, T.Text3, r.X + 18, r.Y + 14);
-            Font vf = value.Length > 9 ? Fonts.H2 : (value.Length > 4 ? Fonts.H1 : Fonts.Big);
-            T.Draw(g, value, vf, vc, r.X + 18, r.Y + 36);
+            Font vf = SizeOf(g, value, r.Width - 36f);
+            T.Draw(g, value, vf, vc, r.X + 18, r.Y + 38);
+            // 副标题只有一行，超出卡片就截断加省略号，别糊到隔壁卡上
+            float maxW = r.Width - 36f;
+            if (maxW > 40 && g.MeasureString(sub, Fonts.Tiny).Width > maxW)
+            {
+                while (sub.Length > 4 && g.MeasureString(sub + "…", Fonts.Tiny).Width > maxW)
+                    sub = sub.Substring(0, sub.Length - 1);
+                sub = sub.TrimEnd('，', '、', '。', ' ', '：') + "…";
+            }
             T.Draw(g, sub, Fonts.Tiny, T.Text3, r.X + 18, r.Y + r.Height - 22);
+        }
+
+        private static Font SizeOf(Graphics g, string value, float maxW)
+        {
+            bool num = value.Length > 0;
+            for (int i = 0; i < value.Length; i++) if (!char.IsDigit(value[i])) { num = false; break; }
+            Font[] ladder = num
+                ? new[] { Fonts.Big, Fonts.H1, Fonts.H2, Fonts.Body }
+                : new[] { Fonts.Value, Fonts.H2, Fonts.Body, Fonts.Small };
+            for (int i = 0; i < ladder.Length; i++)
+                if (g.MeasureString(value, ladder[i]).Width <= maxW) return ladder[i];
+            return ladder[ladder.Length - 1];
         }
 
         private void Ghost(Graphics g, RectangleF r, string text, string id, Color accent)

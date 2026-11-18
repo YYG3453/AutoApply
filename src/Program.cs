@@ -1,4 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Text;
@@ -143,6 +147,8 @@ namespace AutoApply
             {
                 Directory.CreateDirectory(dir);
                 f.Show();
+                f.TopMost = true;
+                f.Activate();
                 Application.DoEvents();
                 System.Threading.Thread.Sleep(600);
                 Application.DoEvents();
@@ -150,17 +156,62 @@ namespace AutoApply
                 {
                     f.GotoPage(key);
                     Application.DoEvents();
-                    System.Threading.Thread.Sleep(350);
+                    System.Threading.Thread.Sleep(1500);
                     Application.DoEvents();
-                    using (var bmp = new Bitmap(f.Width, f.Height))
+                    // 只截客户区：窗口现在保留 WS_THICKFRAME（为了 DWM 圆角），
+                    // DrawToBitmap 会把系统标题栏一起画进来，所以走屏幕抓取。
+                    var o = f.PointToScreen(Point.Empty);
+                    var cs = f.ClientSize;
+                    using (var bmp = new Bitmap(cs.Width, cs.Height))
+                    using (var gg = Graphics.FromImage(bmp))
                     {
-                        f.DrawToBitmap(bmp, new Rectangle(0, 0, f.Width, f.Height));
+                        gg.CopyFromScreen(o.X, o.Y, 0, 0, new Size(cs.Width, cs.Height));
                         bmp.Save(Path.Combine(dir, key + ".png"), System.Drawing.Imaging.ImageFormat.Png);
                     }
                     Trace("rendered " + key);
                 }
             }
             catch (Exception ex) { Trace("render crash: " + ex); }
+            try { f.Close(); } catch { }
+            Application.Exit();
+            Environment.Exit(0);
+        }
+
+        /// <summary>量每个页面"画一次"要多久：切页卡不卡的根子就在这里。</summary>
+        private static void PerfPages(MainForm f)
+        {
+            var sb = new StringBuilder();
+            try
+            {
+                f.Show();
+                Application.DoEvents();
+                System.Threading.Thread.Sleep(900);
+                Application.DoEvents();
+                foreach (var key in f.Pages)
+                {
+                    if (key == "log") continue;
+                    f.GotoPage(key);
+                    Application.DoEvents();
+                    System.Threading.Thread.Sleep(420);
+                    Application.DoEvents();
+                    var t = new List<double>();
+                    for (int i = 0; i < 5; i++)
+                    {
+                        var sw = Stopwatch.StartNew();
+                        using (var bmp = new Bitmap(f.Width, f.Height))
+                            f.DrawToBitmap(bmp, new Rectangle(0, 0, f.Width, f.Height));
+                        sw.Stop();
+                        t.Add(sw.Elapsed.TotalMilliseconds);
+                    }
+                    t.Sort();
+                    sb.AppendLine(key.PadRight(10) + " min=" + t[0].ToString("F1") + "ms  med=" +
+                        t[t.Count / 2].ToString("F1") + "ms  max=" + t[t.Count - 1].ToString("F1") + "ms");
+                }
+            }
+            catch (Exception ex) { sb.AppendLine("crash: " + ex); }
+            var outPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "perf.txt");
+            File.WriteAllText(outPath, sb.ToString(), new UTF8Encoding(false));
+            Trace("perf written: " + outPath);
             try { f.Close(); } catch { }
             Application.Exit();
             Environment.Exit(0);
@@ -191,6 +242,7 @@ namespace AutoApply
                 Trace("creating form");
                 var joinedBefore = string.Join(" ", args);
                 bool tooling = joinedBefore.IndexOf("--render", StringComparison.OrdinalIgnoreCase) >= 0
+                            || joinedBefore.IndexOf("--perf", StringComparison.OrdinalIgnoreCase) >= 0
                             || joinedBefore.IndexOf("--test-hit", StringComparison.OrdinalIgnoreCase) >= 0;
                 if (!tooling && AnotherInstanceRunning())
                 {
@@ -220,6 +272,11 @@ namespace AutoApply
                     var m = System.Text.RegularExpressions.Regex.Match(joined, "--render\\s+\"?([^\"\\s]+)\"?");
                     var outDir = m.Success ? m.Groups[1].Value : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "shots");
                     RenderAll(f, outDir);
+                    return;
+                }
+                if (joined.IndexOf("--perf", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    PerfPages(f);
                     return;
                 }
                 Application.Run(f);

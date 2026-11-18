@@ -17,6 +17,8 @@ namespace AutoApply
         public static readonly Font Tiny = T.F(10f);
         public static readonly Font Big = T.Num(31f, FontStyle.Bold);
         public static readonly Font Mid = T.Num(22f, FontStyle.Bold);
+        /// <summary>KPI 卡里的状态词（"已连接"/"未连接"）：比数字小一号，避免一行字撑满卡片。</summary>
+        public static readonly Font Value = T.F(19f, FontStyle.Bold);
         public static readonly Font Num = T.Num(13f, FontStyle.Bold);
         public static readonly Font Mono = T.Mono(11.5f);
     }

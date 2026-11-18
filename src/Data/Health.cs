@@ -29,6 +29,23 @@ namespace AutoApply
     /// </summary>
     internal static class Health
     {
+        /// <summary>
+        /// 问本机 CDP 用的小客户端：**禁用代理自动探测** + 1.2 秒超时 + 不保活。
+        /// 默认的 WebClient 会因为系统代理设置（开机后 WPAD 探测）每个请求多等 2 秒，
+        /// 之前平台健康页一次重绘问三次，就卡成 4 秒。本机 127.0.0.1 永远不该走代理。
+        /// </summary>
+        private class FastWc : System.Net.WebClient
+        {
+            protected override System.Net.WebRequest GetWebRequest(Uri address)
+            {
+                var r = base.GetWebRequest(address);
+                r.Timeout = 1200;
+                var h = r as System.Net.HttpWebRequest;
+                if (h != null) { h.ReadWriteTimeout = 1200; h.KeepAlive = false; h.Proxy = null; }
+                return r;
+            }
+        }
+
         private const string PROBE_JS =
             "(function(){var t=document.body?document.body.innerText:'';" +
             "var cap=/滑动验证|访问验证|请按住滑块|拖动到最右边|安全验证|验证码/.test(t);" +
@@ -50,7 +67,7 @@ namespace AutoApply
             var list = new List<string>();
             try
             {
-                using (var wc = new System.Net.WebClient())
+                using (var wc = new FastWc())
                 {
                     wc.Encoding = Encoding.UTF8;
                     wc.Headers.Add("Cache-Control", "no-cache");
@@ -86,7 +103,7 @@ namespace AutoApply
         {
             try
             {
-                using (var wc = new System.Net.WebClient())
+                using (var wc = new FastWc())
                 {
                     wc.Headers.Add("Cache-Control", "no-cache");
                     var s = wc.DownloadString("http://127.0.0.1:" + Port + "/json/version");
@@ -189,7 +206,7 @@ namespace AutoApply
         {
             try
             {
-                using (var wc = new System.Net.WebClient())
+                using (var wc = new FastWc())
                 {
                     wc.Headers.Add("Cache-Control", "no-cache");
                     var s = wc.DownloadString("http://127.0.0.1:" + Port + "/json/version");
