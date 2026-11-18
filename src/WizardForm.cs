@@ -249,7 +249,7 @@ namespace AutoApply
         private void Skip()
         {
             _cfg.WizardDone = true;
-            _cfg.Save(Path.GetDirectoryName(Application.ExecutablePath) + "\\config.json");
+            _cfg.Save(Paths.CfgPath);
             Close();
         }
 
@@ -257,7 +257,7 @@ namespace AutoApply
         {
             if (_cities.Count > 0) _cfg.Cities = new List<string>(_cities);
             _cfg.WizardDone = true;
-            _cfg.Save(Path.GetDirectoryName(Application.ExecutablePath) + "\\config.json");
+            _cfg.Save(Paths.CfgPath);
             Close();
         }
 

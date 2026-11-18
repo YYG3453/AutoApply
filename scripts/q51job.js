@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 const PORT = process.env.CDP_PORT ? Number(process.env.CDP_PORT) : 9333;
-const ROOT = __dirname;
+const ROOT = process.env.AUTOAPPLY_DATA || __dirname;   // 数据目录（多副本共享），脚本仍在自己目录
 const STATE_FILE = path.join(ROOT, 'state-q51.jsonl');
 const SCORE = require(path.join(__dirname, 'score.js'));
 const SKIP_FILE = path.join(ROOT, 'state-skip.jsonl');
@@ -111,10 +111,19 @@ const SCAN = `(() => {
     const b = card.querySelector('button.btn.apply');
     let area = m.jobArea || '';
     if (!area) { const am = txt.match(/([\\u4e00-\\u9fa5]{2,6})[·\\-]([\\u4e00-\\u9fa5]{2,14})/); if (am) area = am[0]; }
+    // 公司名：优先取卡片里的公司节点，取不到再从整段文字里按“有限公司/集团/…”这类后缀找
+    let company = '';
+    const cel = card.querySelector('.cname, .company-name, [class*=cname], a[href*="/company/"]');
+    if (cel) company = (cel.innerText || '').replace(/\\s+/g, ' ').trim();
+    if (!company) {
+      const cm = txt.match(/([\\u4e00-\\u9fa5A-Za-z（）()]{2,26}(?:股份有限公司|有限责任公司|有限公司|分公司|集团|事务所|研究院|工作室))/);
+      if (cm) company = cm[1];
+    }
     out.push({
       i,
       id: m.jobId || '',
       title: m.jobTitle || (txt.split(' ')[0] || ''),
+      company,
       area,
       salary: m.jobSalary || '',
       btn: b ? b.textContent.trim() : '',
@@ -279,7 +288,7 @@ async function main() {
         if (seen.has(key)) { skipped++; continue; }
           const sc = SCORE.evaluate({ title: j.title, company: '', kw });
           if (!sc.pass) {
-            if (!skipSeen.has(key)) { skipSeen.add(key); filtered++; skipRecord({ site: 'q51', key, title: j.title, area: j.area, kw, score: sc.score, reason: sc.reason, ts: new Date().toISOString() }); }
+            if (!skipSeen.has(key)) { skipSeen.add(key); filtered++; skipRecord({ site: 'q51', key, title: j.title, company: j.company || '', area: j.area, kw, score: sc.score, reason: sc.reason, ts: new Date().toISOString() }); }
             skipped++; log('FILTER ' + sc.score + ' ' + sc.reason + ' | ' + j.title + ' ' + j.area); continue;
           }
         if (/已申请|继续沟通/.test(j.btn)) { seen.add(key); skipped++; continue; }
@@ -289,7 +298,7 @@ async function main() {
         if (r.why === 'limit' || /安全验证|验证码|上限|频繁|投递太多/.test(r.tip || '')) { log('!! STOP:', r.tip || r.why); stop = 'limit'; break; }
         if (r.ok) {
           sent++; fresh++; seen.add(key);
-          record({ key, title: j.title, area: j.area, salary: j.salary, kw, score: sc.score, ts: new Date().toISOString() });
+          record({ key, title: j.title, company: j.company || '', area: j.area, salary: j.salary, kw, score: sc.score, ts: new Date().toISOString() });
           log('OK ' + sent + ' ' + j.title + ' [' + j.area + '] ' + j.salary);
         } else if (r.why === 'already') {
           seen.add(key); skipped++;

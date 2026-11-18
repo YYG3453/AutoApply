@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 const PORT = process.env.CDP_PORT ? Number(process.env.CDP_PORT) : 9333;
-const ROOT = __dirname;
+const ROOT = process.env.AUTOAPPLY_DATA || __dirname;   // 数据目录（多副本共享），脚本仍在自己目录
 const STATE_FILE = path.join(ROOT, 'state.jsonl');
 const SCORE = require(path.join(__dirname, 'score.js'));
 const SKIP_FILE = path.join(ROOT, 'state-skip.jsonl');

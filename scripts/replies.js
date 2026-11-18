@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 
-const ROOT = __dirname;
+const ROOT = process.env.AUTOAPPLY_DATA || __dirname;   // 数据目录（多副本共享），脚本仍在自己目录
 const OUT = path.join(ROOT, 'state-replies.jsonl');
 
 const argv = process.argv.slice(2);

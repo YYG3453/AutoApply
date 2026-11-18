@@ -125,7 +125,7 @@ namespace AutoApply
             }
 
             // 主题切换 + 落盘验证（跑完恢复夜晚模式）
-            var cfgPath = Path.Combine(f.BaseDir, "config.json");
+            var cfgPath = Paths.CfgPath.Length > 0 ? Paths.CfgPath : Path.Combine(f.BaseDir, "config.json");
             var before = AppCfg.Load(cfgPath).Theme;
             f.ApplyTheme("day", true);
             var dayTheme = AppCfg.Load(cfgPath).Theme;

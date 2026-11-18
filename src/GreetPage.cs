@@ -279,7 +279,9 @@ namespace AutoApply
             float listBottom = notesY - 12f;
             var clip = new RectangleF(32, listTop, W - 64, Math.Max(20f, listBottom - listTop));
 
-            float contentH = _stats.Count * CardH + Math.Max(0, _stats.Count - 1) * CardGap;
+            // 至少摆 3 个位置：用掉的画版本卡，没用掉的画"新建"槽位
+            int slots = Math.Max(3, _stats.Count);
+            float contentH = slots * CardH + Math.Max(0, slots - 1) * CardGap;
             float maxScroll = Math.Max(0f, contentH - clip.Height);
             if (_scroll > maxScroll) _scroll = maxScroll;
             if (_scroll < 0f) _scroll = 0f;
@@ -291,6 +293,13 @@ namespace AutoApply
                 if (card.Bottom < clip.Top - 8f || card.Y > clip.Bottom + 8f) continue;
                 bool whole = card.Y >= clip.Top - 0.5f && card.Bottom <= clip.Bottom + 0.5f;
                 PaintCard(g, card, _stats[i], cfg, whole);
+            }
+            for (int i = _stats.Count; i < slots; i++)
+            {
+                var card = new RectangleF(32, listTop + i * (CardH + CardGap) - _scroll, W - 64, CardH);
+                if (card.Bottom < clip.Top - 8f || card.Y > clip.Bottom + 8f) continue;
+                bool whole = card.Y >= clip.Top - 0.5f && card.Bottom <= clip.Bottom + 0.5f;
+                PaintSlot(g, card, i, whole);
             }
             g.ResetClip();
 
@@ -320,6 +329,39 @@ namespace AutoApply
                 T.Draw(g, "回复按公司名对上投递，同一家公司只算一次。", Fonts.Small, T.Text2, cr.X + 18, cr.Y + 38);
                 T.Draw(g, "早于时间线起点的投递不归属任何版本" + (_unassigned > 0 ? "（现在 " + _unassigned + " 条）" : "") + "。", Fonts.Tiny, T.Text3, cr.X + 18, cr.Y + 60);
             }
+        }
+
+        /// <summary>空槽位：虚线框 + 加号，点一下开编辑器新建。给"还能不能再加两版"一个看得见的位置。</summary>
+        private void PaintSlot(Graphics g, RectangleF r, int idx, bool addHits)
+        {
+            float hv = addHits ? H("new") : 0f;
+            T.FillRound(g, r, 14f, T.Mix(T.Panel2, T.Alpha(T.Jade, 16), hv));
+            var rr = new RectangleF(r.X + 0.6f, r.Y + 0.6f, r.Width - 1.2f, r.Height - 1.2f);
+            using (var path = T.Round(rr, 14f))
+            using (var pen = new Pen(T.Mix(T.Line, T.Alpha(T.Jade, 170), Math.Max(0.35f, hv)), 1f))
+            {
+                pen.DashStyle = DashStyle.Dash;
+                pen.DashPattern = new float[] { 3.2f, 2.6f };
+                g.DrawPath(pen, path);
+            }
+
+            // 中间的加号 + 文案
+            float cx = r.X + r.Width / 2f;
+            var circ = new RectangleF(cx - 15, r.Y + 26, 30, 30);
+            T.FillRound(g, circ, 15f, T.Mix(T.Panel3, T.Alpha(T.Jade, 46), hv));
+            using (var p = new Pen(T.Mix(T.Text3, T.Jade, hv), 1.6f))
+            {
+                p.StartCap = LineCap.Round; p.EndCap = LineCap.Round;
+                g.DrawLine(p, cx - 7, circ.Y + 15, cx + 7, circ.Y + 15);
+                g.DrawLine(p, cx, circ.Y + 8, cx, circ.Y + 22);
+            }
+            bool hot = hv > 0.5f;
+            T.TextC(g, "新建一版（第 " + (idx + 1) + " 个位置）", Fonts.Body, hot ? T.Text : T.Text2,
+                    new RectangleF(r.X + 20, circ.Bottom + 10, r.Width - 40, 22));
+            T.TextC(g, "写你自己的话；保存后可以复制、可以设为当前", Fonts.Tiny, T.Text3,
+                    new RectangleF(r.X + 20, circ.Bottom + 32, r.Width - 40, 18));
+
+            if (addHits) AddHit("new", r);
         }
 
         private void PaintCard(Graphics g, RectangleF card, Stat st, AppCfg cfg, bool addHits)

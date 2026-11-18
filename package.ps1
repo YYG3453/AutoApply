@@ -1,5 +1,9 @@
-# Build the release folder + zip. ASCII only: Windows PowerShell 5.1 mangles non-ASCII without BOM.
-param([string]$Version = "1.0.9")
+﻿# Build the release folder + zip. ASCII only: Windows PowerShell 5.1 mangles non-ASCII without BOM.
+param([string]$Version = "")
+if (-not $Version) {
+    $m = Select-String -Path (Join-Path $PSScriptRoot "src\MainForm.cs") -Pattern 'Version = "([0-9.]+)"'
+    if ($m) { $Version = $m.Matches[0].Groups[1].Value } else { $Version = "0.0.0" }
+}
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot

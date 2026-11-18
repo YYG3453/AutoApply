@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 const PORT = process.env.CDP_PORT ? Number(process.env.CDP_PORT) : 9333;
-const ROOT = __dirname;
+const ROOT = process.env.AUTOAPPLY_DATA || __dirname;   // 数据目录（多副本共享），脚本仍在自己目录
 const STATE_FILE = path.join(ROOT, 'state-yjs.jsonl');
 const SCORE = require(path.join(__dirname, 'score.js'));
 const SKIP_FILE = path.join(ROOT, 'state-skip.jsonl');
@@ -119,9 +119,17 @@ async function scan(c) {
     return cards.map((c2, i) => {
       const t = (c2.innerText || '').replace(/\\s+/g, ' ').trim();
       const m = t.match(/([\\u4e00-\\u9fa5]{2,6})-([\\u4e00-\\u9fa5]{2,10})/);
+      let company = '';
+      const cel = c2.querySelector('.company, .job-company, [class*=company], a[href*="/company"]');
+      if (cel) company = (cel.innerText || '').replace(/\\s+/g, ' ').trim();
+      if (!company) {
+        const cm = t.match(/([\\u4e00-\\u9fa5A-Za-z（）()]{2,26}(?:股份有限公司|有限责任公司|有限公司|分公司|集团|事务所|研究院|工作室))/);
+        if (cm) company = cm[1];
+      }
       return {
         i,
         title: t.split(' ')[0] || '',
+        company,
         text: t.slice(0, 120),
         loc: m ? m[0] : '',
         city: m ? m[1] : '',
@@ -232,7 +240,7 @@ async function main() {
           if (seen.has(key)) { skipped++; continue; }
           const sc = SCORE.evaluate({ title: j.title, company: '', kw });
           if (!sc.pass) {
-            if (!skipSeen.has(key)) { skipSeen.add(key); filtered++; skipRecord({ site: 'yjs', key, title: j.title, loc: j.loc, kw, score: sc.score, reason: sc.reason, ts: new Date().toISOString() }); }
+            if (!skipSeen.has(key)) { skipSeen.add(key); filtered++; skipRecord({ site: 'yjs', key, title: j.title, company: j.company || '', loc: j.loc, kw, score: sc.score, reason: sc.reason, ts: new Date().toISOString() }); }
             skipped++; log('FILTER ' + sc.score + ' ' + sc.reason + ' | ' + j.title + ' ' + j.loc); continue;
           }
           if (j.applied) { seen.add(key); skipped++; continue; }
@@ -242,7 +250,7 @@ async function main() {
           if (/安全验证|验证码|上限|频繁/.test(r.tip || '')) { log('!! STOP:', r.tip); stop = 'limit'; break; }
           if (r.ok) {
             sent++; fresh++; seen.add(key);
-            record({ key, title: j.title, loc: j.loc, kw, score: sc.score, ts: new Date().toISOString() });
+            record({ key, title: j.title, company: j.company || '', loc: j.loc, kw, score: sc.score, ts: new Date().toISOString() });
             log('OK ' + sent + ' ' + j.title + ' [' + j.loc + ']');
           } else {
             errs++; log('SKIP', j.title, r.why, r.tip || '');

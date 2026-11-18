@@ -30,6 +30,9 @@ namespace AutoApply
     internal class Engine
     {
         public readonly string BaseDir;
+        /// <summary>脚本目录（exe 旁边）：.js 代码在这里。</summary>
+        public readonly string BinDir;
+        /// <summary>数据目录（用户目录）：state-*.jsonl / runs.jsonl / rules.json 在这里。</summary>
         public readonly string ScriptDir;
         public AppCfg Cfg;
         public bool Running { get; private set; }
@@ -55,7 +58,8 @@ namespace AutoApply
         public Engine(string baseDir)
         {
             BaseDir = baseDir;
-            ScriptDir = Path.Combine(baseDir, "scripts");
+            BinDir = Paths.BinDir.Length > 0 ? Paths.BinDir : Path.Combine(baseDir, "scripts");
+            ScriptDir = Paths.DataDir.Length > 0 ? Paths.DataDir : BinDir;
         }
 
         private void L(string level, string text)
@@ -219,15 +223,16 @@ namespace AutoApply
         {
             try
             {
-                var psi = new ProcessStartInfo(NodePath(), "--experimental-websocket \"" + script + "\" " + args);
+                var psi = new ProcessStartInfo(NodePath(), "--experimental-websocket \"" + Path.Combine(BinDir, script) + "\" " + args);
                 psi.UseShellExecute = false;
                 psi.RedirectStandardOutput = true;
                 psi.RedirectStandardError = true;
                 psi.CreateNoWindow = true;
-                psi.WorkingDirectory = ScriptDir;
+                psi.WorkingDirectory = BinDir;
                 psi.StandardOutputEncoding = Encoding.UTF8;
                 psi.StandardErrorEncoding = Encoding.UTF8;
                 psi.EnvironmentVariables["CDP_PORT"] = Cfg.Port.ToString();
+                psi.EnvironmentVariables["AUTOAPPLY_DATA"] = ScriptDir;
                 if (!string.IsNullOrEmpty(cdpMatch)) psi.EnvironmentVariables["CDP_MATCH"] = cdpMatch;
                 using (var p = Process.Start(psi))
                 {
@@ -522,15 +527,16 @@ namespace AutoApply
             int sent = 0;
             try
             {
-                var psi = new ProcessStartInfo(NodePath(), "--experimental-websocket \"" + s.Script + "\" " + args);
+                var psi = new ProcessStartInfo(NodePath(), "--experimental-websocket \"" + Path.Combine(BinDir, s.Script) + "\" " + args);
                 psi.UseShellExecute = false;
                 psi.RedirectStandardOutput = true;
                 psi.RedirectStandardError = true;
                 psi.CreateNoWindow = true;
-                psi.WorkingDirectory = ScriptDir;
+                psi.WorkingDirectory = BinDir;
                 psi.StandardOutputEncoding = Encoding.UTF8;
                 psi.StandardErrorEncoding = Encoding.UTF8;
                 psi.EnvironmentVariables["CDP_PORT"] = Cfg.Port.ToString();
+                psi.EnvironmentVariables["AUTOAPPLY_DATA"] = ScriptDir;
 
                 using (var p = new Process())
                 {

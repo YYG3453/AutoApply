@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -14,7 +14,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.8.3";
+        public const string Version = "1.8.4";
 
         /// <summary>--tray：启动后只呆在托盘里，不弹窗口（给计划任务用）。</summary>
         public bool StartInTray;
@@ -66,7 +66,8 @@ namespace AutoApply
         public MainForm()
         {
             BaseDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
-            Cfg = AppCfg.Load(Path.Combine(BaseDir, "config.json"));
+            Paths.Init(BaseDir);
+            Cfg = AppCfg.Load(Paths.CfgPath.Length > 0 ? Paths.CfgPath : Paths.CfgPath);
             Engine = new Engine(BaseDir) { Cfg = Cfg };
             Records = RecordStore.Load(Engine.ScriptDir);
 
@@ -201,7 +202,7 @@ namespace AutoApply
                 try
                 {
                     using (var wf = new WizardForm(Cfg, Engine.ScriptDir)) wf.ShowDialog(this);
-                    Cfg = AppCfg.Load(Path.Combine(BaseDir, "config.json"));
+                    Cfg = AppCfg.Load(Paths.CfgPath);
                     _dash.Invalidate();
                 }
                 catch (Exception ex) { Program.Trace("wizard failed: " + ex.Message); }
@@ -303,7 +304,7 @@ namespace AutoApply
 
         public void SaveCfg()
         {
-            Cfg.Save(Path.Combine(BaseDir, "config.json"));
+            Cfg.Save(Paths.CfgPath);
             var h = CfgChanged; if (h != null) h();
         }
 
@@ -489,7 +490,7 @@ namespace AutoApply
                 float a = 0.35f + 0.65f * (float)((Math.Sin(_pulseT) + 1) / 2);
                 T.Dot(g, W - 150, fy + 13, 3.5f, T.Alpha(T.Jade, (int)(a * 255)));
             }
-            T.TextR(g, "v" + Version + "  ·  报告：scripts/report.md", T.F(10.5f), T.Text3, W - 24, fy + 7);
+            T.TextR(g, "v" + Version + "  ·  数据：" + (Paths.DataDir.Length > 0 ? System.IO.Path.GetFileName(Paths.DataDir) : "scripts") + "\\report.md", T.F(10.5f), T.Text3, W - 24, fy + 7);
         }
 
         // ---------- 窗口拖动 ----------

@@ -29,3 +29,15 @@ tools/*.exe
 schtest.txt
 scripts/run.log
 logs/
+
+# 便携模式的数据目录与标记（每台机器自己的数据）
+data/
+AutoApply.data
+scripts/state-skip.jsonl
+scripts/state-replies.jsonl
+scripts/runs.jsonl
+scripts/config.json
+scripts/state.jsonl.bak
+shots1*/
+AutoApply.test.exe
+*.bak
