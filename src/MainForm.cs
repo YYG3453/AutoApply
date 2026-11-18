@@ -14,7 +14,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.7.0";
+        public const string Version = "1.8.0";
 
         /// <summary>--tray：启动后只呆在托盘里，不弹窗口（给计划任务用）。</summary>
         public bool StartInTray;
@@ -22,6 +22,7 @@ namespace AutoApply
         /// <summary>--run-now：启动后立刻跑一轮（自测/命令行触发用）。</summary>
         public bool StartRunNow;
         public bool SuppressWizard;
+        private bool _wasRunning;
         public readonly string BaseDir;
         public AppCfg Cfg;
         public Engine Engine;
@@ -150,6 +151,8 @@ namespace AutoApply
                 UpdateTray();
                 if (Engine.Running && !_pulse.Enabled) _pulse.Start();
                 if (!Engine.Running) { _pulse.Stop(); _pulseT = 0; }
+                if (_wasRunning && !Engine.Running) OnRunFinished();
+                _wasRunning = Engine.Running;
             });
             Engine.SiteSent += (k, n) => Ui(() => _dash.Invalidate());
             Engine.SiteAttention += (site, reason) => Ui(() =>
@@ -224,6 +227,38 @@ namespace AutoApply
         }
 
         /// <summary>投递进行中不许改配置（改了一半的时长/城市会让本轮语义混乱）。</summary>
+        /// <summary>一轮跑完后的兜底检查：0 条告警 + 数据自检。</summary>
+        private void OnRunFinished()
+        {
+            try
+            {
+                Records = RecordStore.Load(Engine.ScriptDir);
+                var zero = new List<string>();
+                if (Cfg != null)
+                    for (int i = 0; i < Cfg.Sites.Count; i++)
+                    {
+                        var s = Cfg.Sites[i];
+                        if (!s.Enabled) continue;
+                        if (Records.CountToday(s.Key) == 0) zero.Add(s.Name);
+                    }
+                if (zero.Count > 0)
+                {
+                    string txt = string.Join("、", zero.ToArray()) + " 今天一条都没投出去。多半是标签页挂了或没登录，去「平台健康」看一眼。";
+                    Notify("今天有站 0 条", txt);
+                    _log.View.Add("warn", "!! 零投递：" + string.Join("、", zero.ToArray()));
+                }
+                var all = SelfCheck.Run(Records, Cfg);
+                var bad = SelfCheck.Failures(all);
+                if (bad.Count > 0)
+                {
+                    Notify("数据自检有 " + bad.Count + " 项对不上", bad[0].Title + "：" + bad[0].Detail);
+                    _log.View.Add("warn", "!! 数据自检：" + bad[0].Title + " — " + bad[0].Detail);
+                }
+                _dash.Invalidate();
+            }
+            catch (Exception ex) { Program.Trace("run finished check failed: " + ex.Message); }
+        }
+
         public bool CanEdit { get { return Engine == null || !Engine.Running; } }
 
         /// <summary>需要人处理的事情：底部提示 + 托盘气泡（窗口在托盘时也能看见）。</summary>

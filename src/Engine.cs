@@ -396,10 +396,20 @@ namespace AutoApply
                     L("info", "提示：如果浏览器里还没登录四个平台，请先手动登录一次（登录会记住）");
                 }
 
+                int carry = 0;
                 foreach (var s in sites)
                 {
                     if (_stop) { L("warn", "已停止，跳过剩余的站"); break; }
                     if (!s.Enabled) continue;
+                    if (CappedToday(s))
+                    {
+                        var rc = new SiteResult { Key = s.Key, Name = s.Name, Started = DateTime.Now, Ended = DateTime.Now, Stop = "capped", Needs = "今日已达上限，本轮跳过" };
+                        Results.Add(rc);
+                        carry += s.Minutes;
+                        L("warn", "!! " + s.Name + "：今天已经撞过上限（limit / 发不出去），本轮跳过，时间让给后面的站");
+                        Changed();
+                        continue;
+                    }
 
                     CurrentSite = s.Key; CurrentSiteName = s.Name;
                     var sw = SiteSwith; if (sw != null) { try { sw(s.Key); } catch { } }
@@ -437,7 +447,16 @@ namespace AutoApply
                         continue;
                     }
 
-                    RunOneSite(s, r);
+                    if (carry > 0)
+                    {
+                        int oldMin = s.Minutes;
+                        s.Minutes = oldMin + carry;
+                        L("info", s.Name + " 继承上一站让出的 " + carry + " 分钟（" + oldMin + " → " + s.Minutes + "）");
+                        RunOneSite(s, r);
+                        s.Minutes = oldMin;
+                        carry = 0;
+                    }
+                    else RunOneSite(s, r);
                     if (r.Stop == "captcha" || r.Stop == "login")
                     {
                         r.Needs = r.Stop == "captcha" ? "页面上有验证码，需要人工拖一次滑块" : "未登录，需要人工登录一次";
@@ -465,6 +484,29 @@ namespace AutoApply
                 var h = Log; if (h != null) { try { h("sys", "=== 本轮结束"); } catch { } }
                 Changed();
             }
+        }
+
+        /// <summary>今天这一站是否已经撞过平台上限（limit / 发不出去）。</summary>
+        private bool CappedToday(SiteCfg s)
+        {
+            try
+            {
+                string p = Path.Combine(ScriptDir, "runs.jsonl");
+                if (!File.Exists(p)) return false;
+                string today = DateTime.Now.ToString("yyyy-MM-dd");
+                string[] all = File.ReadAllLines(p);
+                for (int i = all.Length - 1; i >= 0 && i > all.Length - 200; i--)
+                {
+                    string ln = all[i];
+                    if (ln == null || ln.Length == 0) continue;
+                    if (ln.IndexOf(today, StringComparison.Ordinal) < 0) continue;
+                    if (ln.IndexOf("\"site\":\"" + s.Key + "\"", StringComparison.Ordinal) < 0) continue;
+                    if (ln.IndexOf("\"stop\":\"limit\"", StringComparison.Ordinal) >= 0) return true;
+                    if (ln.IndexOf("\"stop\":\"nosent\"", StringComparison.Ordinal) >= 0) return true;
+                }
+            }
+            catch { }
+            return false;
         }
 
         private void RunOneSite(SiteCfg s, SiteResult r)

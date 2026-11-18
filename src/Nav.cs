@@ -29,6 +29,7 @@ namespace AutoApply
             new NavItem { Key = "analyze", Title = "运行分析",    Group = "投递", Create = delegate(MainForm f) { return new AnalyzePage(f); } },
             new NavItem { Key = "health",Title = "平台健康",    Group = "系统", Create = delegate(MainForm f) { return new HealthPage(f); } },
             new NavItem { Key = "log",     Title = "运行日志",    Group = "系统", Create = delegate(MainForm f) { return new LogPage(f); } },
+            new NavItem { Key = "selfcheck",Title = "数据自检",  Group = "系统", Create = delegate(MainForm f) { return new SelfCheckPage(f); } },
             new NavItem { Key = "about",   Title = "关于",        Group = "系统", Create = delegate(MainForm f) { return new AboutPage(f); } },
         };
 
