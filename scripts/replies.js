@@ -229,7 +229,8 @@ function myTexts() {
   return out.slice(-300);
 }
 
-const INTERVIEW_RE = /面试|面谈|复试|初试|视频聊|来公司|到公司|过来聊|约个时间|什么时候方便|简历通过|发个简历/;
+const INTERVIEW_RE = /((约|安排|定|挑|选|方便).{0,8}(面试|面谈|复试|初试))|((面试|面谈|复试|初试).{0,12}(时间|几点|周[一二三四五六日末]|明天|后天|上午|下午|\d{1,2}[:：]\d{2}))|(来我们?公司.{0,6}(面试|聊聊|谈谈))/;
+const CANNED_RE = /通过(会|后).{0,8}(安排|通知).{0,4}面试|会安排面试|面试通知|综合评估/;
 const REJECT_RE = /不合适|不太合适|不适合|不匹配|不太匹配|不是很匹配|不符合|不能发挥|已招满|招到了|暂时不需要|不需要了|祝好|预祝找到|方向不合适/;
 const ASK_RESUME_RE = /附件简历|简历过来|发一份.*简历|发个简历|简历发/;
 const PARTTIME_RE = /兼职|外包|派遣/;
@@ -254,14 +255,14 @@ function parseHead(text) {
 // 一句话总结对方的态度：interview 约面 / askResume 要简历 / replied 普通回复 / rejected 拒绝 / notfit 兼职外包 / none 没回
 function statusOf(last, interview) {
   if (!last) return 'none';
-  if (interview) return 'interview';
+  if (interview && !CANNED_RE.test(last)) return 'interview';
   if (ASK_RESUME_RE.test(last)) return 'askResume';
   if (REJECT_RE.test(last)) return 'rejected';
   if (PARTTIME_RE.test(last)) return 'notfit';
   return 'replied';
 }
 
-const STATUS_CN = { interview: '约面试', askResume: '要简历', replied: '已回复', rejected: '不合适', notfit: '兼职/外包', none: '未回复' };
+const STATUS_CN = { interview: '提到面试', askResume: '要简历', replied: '已回复', rejected: '不合适', notfit: '兼职/外包', none: '未回复' };
 
 const results = [];
 let replied = 0, interview = 0;
@@ -305,7 +306,7 @@ async function doBoss() {
           company: th.company || '', job: th.job || head.job || '',
           city: head.city || '', salary: head.salary || '',
           lastTime: it.time, unread: it.unread, lastBy: lastTheirs ? 'them' : 'me',
-          theLast: th.theLast || it.last,
+          theLast: th.theLast || '',
           replied: lastTheirs || it.unread > 0,
           interview: interview,
           status: statusOf(lastTheirs ? th.theLast : '', interview),
@@ -333,8 +334,8 @@ async function doZp() {
         await sleep(700);
         const th = JSON.parse(await ev(c, zpThreadJS(mine)));
         if (!th || !th.ok) continue;
-        const lastText = th.theLast || it.last || '';
-        const interview = INTERVIEW_RE.test(lastText);
+        const lastText = th.theLast || '';
+        const interview = lastText.length > 0 && INTERVIEW_RE.test(lastText);
         push({
           site: 'zp', key: 'zp:' + (it.name || i), name: it.name,
           company: it.company || it.name, job: it.job || '',
