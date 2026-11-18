@@ -3,13 +3,19 @@
 ![AutoApply](docs/logo.png)
 
 
-> 一个 77 KB 的绿色小工具：到点自动打开浏览器，替你在 **BOSS直聘 / 智联招聘 / 应届生 / 前程无忧** 四个平台上批量投递岗位，投完自动收工。
+> 一个 610 KB 的绿色小工具：到点自动打开浏览器，替你在 **BOSS直聘 / 智联招聘 / 应届生 / 前程无忧** 四个平台上批量投递岗位，投完自动收工。
 >
 > 解压即用 · 无需安装 · 不联网到任何第三方服务器（只和四个招聘网站通信）
 
 ![仪表盘 · 夜间模式](docs/dash.png)
 
 ---
+
+## 下载
+
+最新版 **v1.8.5**：[AutoApply-1.8.5-win-x64.zip](https://github.com/YYG3453/AutoApply/releases/latest)（26.8 MB）
+
+解压到任意目录、双击 `AutoApply.exe` 即用。升级时覆盖 exe 和 `scripts\*.js` 即可，投递记录在 `data\`，不会被覆盖。全部版本见 [Releases](https://github.com/YYG3453/AutoApply/releases)。
 
 ## 特性
 
@@ -246,7 +252,7 @@ ode --experimental-websocket replies.js --max 30
 
 「关于」页新增「版本与更新」卡：显示当前版本、GitHub 上最新 tag、是否有新版本，右侧「检查更新」按钮；有新版本时多一个「打开下载页」。
 
-判断依据是 GitHub API（`/releases/latest` 取不到时退回 `/tags` 的第一个），版本号按段比较数字。仓库还没发 Release 时会显示「检查失败」，这是正常的。
+判断依据是 GitHub API（`/releases/latest` 取不到时退回 `/tags` 的第一个），版本号按段比较数字。当前已发布 Release，正常网络下点一下就会显示「已是最新」或「有新版本」。
 
 更新方式是覆盖式：下载新 zip 解压覆盖 exe 即可，`browser-profile`（登录态）和 `scripts` 里的记录文件不会被覆盖。
 
