@@ -113,8 +113,8 @@ namespace AutoApply
             T.Draw(g, "四站的标签页 / 登录态 / 验证码一屏看完；异常点右边「重开」即可", Fonts.Small, T.Text3, 32, 62);
 
             // 右上操作按钮（右边留出窗口三键的位置）
-            Ghost(g, new RectangleF(W - 300, 26, 108, 32), "全部检查", "health:check", T.Jade);
-            Ghost(g, new RectangleF(W - 182, 26, 108, 32), "全部重开", "health:reopenall", T.Text2);
+            Ghost(g, new RectangleF(W - 452, 26, 108, 32), "全部检查", "health:check", T.Jade);
+            Ghost(g, new RectangleF(W - 334, 26, 108, 32), "全部重开", "health:reopenall", T.Text2);
 
             if (!_started) { _started = true; CheckAll(); }
 

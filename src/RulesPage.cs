@@ -56,7 +56,11 @@ namespace AutoApply
             T.Draw(g, "匹配规则", Fonts.H1, T.Text, 32, 20);
             T.Draw(g, "投递前先打分；低于分数线就跳过，被跳过的会记进「被过滤」", Fonts.Small, T.Text2, 32, 55);
 
-            DrawGhost(g, new RectangleF(W - 300, 26, 120, 32), "保存并生效", "save", T.JadeDim);
+            var saveR = new RectangleF(W - 300, 26, 132, 32);
+            float shv = H("save");
+            T.FillRound(g, saveR, 10f, T.Mix(T.Jade, T.JadeHi, shv));
+            T.TextC(g, "保存并生效", T.F(12.5f, System.Drawing.FontStyle.Bold), T.JadeInk, saveR);
+            AddHit("save", saveR);
 
             // ---------- 卡片 1：分数线 / 标题必含开关 / 新词 / 试算 ----------
             var c1 = new RectangleF(32, 92, W - 64, 190);

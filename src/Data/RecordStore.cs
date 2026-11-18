@@ -359,7 +359,7 @@ namespace AutoApply
             if (r.Key.Length == 0) r.Key = Str(line, "key");
             r.Title = Str(line, "title");
             r.Company = Str(line, "company");
-            r.Salary = Str(line, "salary");
+            r.Salary = CleanSalary(Str(line, "salary"));
             r.Kw = Str(line, "kw");
             r.City = Str(line, "city");
             r.Loc = Str(line, "loc");
@@ -386,6 +386,20 @@ namespace AutoApply
         }
 
         /// <summary>从 "杭州·滨江区·长河" / "重庆-渝中区..." / "北京 海淀" 里取城市。</summary>
+        public static string CleanSalary(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            // BOSS 用自定义字体渲染薪资，取出来是私有区字形，这类值没有意义，置空
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                bool ok = char.IsDigit(c) || c == 'K' || c == 'k' || c == '-' || c == '.' || c == ' ' ||
+                          c == '元' || c == '万' || c == '天' || c == '月' || c == '年' || c == '薪' || c == '/';
+                if (!ok) return "";
+            }
+            return s.Trim();
+        }
+
         public static string CityOf(string loc)
         {
             if (string.IsNullOrEmpty(loc)) return "";
@@ -459,7 +473,7 @@ namespace AutoApply
                         r.Company = Str(line, "company");
                         r.Job = Str(line, "job");
                         r.City = Str(line, "city");
-                        r.Salary = Str(line, "salary");
+                        r.Salary = CleanSalary(Str(line, "salary"));
                         r.LastText = Str(line, "theLast");
                         r.Status = Str(line, "status");
                         if (r.Status.Length == 0) r.Status = "none";
