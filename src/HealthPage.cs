@@ -307,7 +307,7 @@ namespace AutoApply
                 string who = App.Engine.CurrentSiteName;
                 string line = "● 正在运行 · " + (who != null && who.Length > 0 ? who + " · " : "") + st;
                 T.Draw(g, Fit(g, line, Fonts.Small, W - 200), Fonts.Small, T.Jade, 32, 62);
-                Ghost(g, new RectangleF(W - 452, 56, 96, 26), "运行日志", "health:log", T.Text2);
+                Ghost(g, new RectangleF(W - 124, 60, 92, 26), "运行日志", "health:log", T.Text2);
             }
             else if (App.Engine != null && !string.IsNullOrEmpty(App.Engine.LastChromeError))
             {
@@ -379,6 +379,8 @@ namespace AutoApply
                 T.Draw(g, LastRunOf(s.Key), Fonts.Small, T.Text2, x + 110, ly);
 
                 string note = h != null && h.Note.Length > 0 && h.Note != "正常" ? h.Note : "";
+                // 浏览器后来连上了，但这一站还是上一次"没连上"时的旧结论：别让人以为端口又断了
+                if (chrome && note == "没连上浏览器调试端口") note = "还没检查这一站 · 点「检查」";
                 if (note.Length == 0 && !chrome) note = AnyChromeNow
                     ? "你的 Chrome 开着，但没开调试通道 · 点「重开」用程序自己的窗口"
                     : "还没连上调试端口 · 点「重开」";

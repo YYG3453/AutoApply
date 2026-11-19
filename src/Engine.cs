@@ -417,6 +417,33 @@ namespace AutoApply
         private static bool _anyChromeSeen;
         private static DateTime _anyChromeAt = DateTime.MinValue;
 
+        /// <summary>
+        /// 开机自启浏览器：把「带调试端口的 Chrome」写进启动文件夹，由资源管理器在登录时拉起。
+        /// 为什么要这样：程序自己（低权限进程）启动 Chrome 会被 crashpad 拒绝而自杀
+        /// （0x80000003），但系统在登录时启动的没有这个问题。
+        /// </summary>
+        public string EnsureBrowserAutoStart()
+        {
+            try
+            {
+                string dir = Environment.GetFolderPath(Environment.SpecialFolder.Startup);
+                if (dir == null || dir.Length == 0) return "拿不到启动文件夹";
+                string chrome = FindChrome();
+                if (chrome.Length == 0) return "没找到 chrome.exe";
+                string profile = Path.Combine(BaseDir, Cfg.ProfileDir);
+                string path = Path.Combine(dir, "AutoApply 浏览器.cmd");
+                var sb = new StringBuilder();
+                sb.AppendLine("@echo off");
+                sb.AppendLine("rem 由 AutoApply 生成：登录 Windows 后自动启动带调试端口的浏览器");
+                sb.AppendLine("rem 删掉这个文件就不再开机自启。");
+                sb.AppendLine("start \"\" \"" + chrome + "\" --user-data-dir=\"" + profile + "\" --remote-debugging-port=" + Cfg.Port + " --no-first-run --no-default-browser-check --window-size=1280,900 --window-position=180,60");
+                sb.AppendLine("exit /b");
+                File.WriteAllText(path, sb.ToString(), Encoding.Default);
+                return path;
+            }
+            catch (Exception ex) { return "开机自启没设上：" + ex.Message; }
+        }
+
         public static bool AnyChromeRunning()
         {
             if ((DateTime.Now - _anyChromeAt).TotalSeconds < 20) return _anyChromeSeen;

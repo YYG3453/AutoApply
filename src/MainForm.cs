@@ -14,7 +14,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.8.8";
+        public const string Version = "1.8.9";
 
         /// <summary>--tray：启动后只呆在托盘里，不弹窗口（给计划任务用）。</summary>
         public bool StartInTray;
@@ -100,6 +100,8 @@ namespace AutoApply
             Paths.Init(BaseDir);
             Cfg = AppCfg.Load(Paths.CfgPath.Length > 0 ? Paths.CfgPath : Paths.CfgPath);
             Engine = new Engine(BaseDir) { Cfg = Cfg };
+            try { Program.Trace("浏览器开机自启：" + Engine.EnsureBrowserAutoStart()); }
+            catch { }
             Records = RecordStore.Load(Engine.ScriptDir);
             // 重启时把"今天已经跑过的时段"标上：否则 10:00 重启会让上午场从 09:30 再投一遍，
             // 平台额度白烧一轮，还可能在两轮之间把同一批岗位点第二遍。
