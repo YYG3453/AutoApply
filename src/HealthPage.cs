@@ -26,6 +26,7 @@ namespace AutoApply
         // ---- CDP 快照（后台线程写，绘制线程读）----
         private readonly object _gate = new object();
         private bool _chrome;
+        private bool _anyChrome;   // 系统里有没有 Chrome 在跑（就算没开调试口）
         private string _chromeVer = "";
         private List<string> _tabs = new List<string>();
         private string _snapAt = "";
@@ -81,6 +82,7 @@ namespace AutoApply
                     lock (_gate)
                     {
                         _chrome = alive;
+                        _anyChrome = Engine.AnyChromeRunning();
                         _chromeVer = ver;
                         _tabs = tabs;
                         _snapAt = DateTime.Now.ToString("HH:mm:ss");
@@ -109,6 +111,8 @@ namespace AutoApply
         }
 
         public void CheckAll() { CheckAll(false, false); }
+
+        private bool AnyChromeNow { get { lock (_gate) return _anyChrome; } }
 
         public void CheckAll(bool openBrowser) { CheckAll(openBrowser, false); }
 
@@ -231,7 +235,7 @@ namespace AutoApply
                     var list = new List<SiteCfg>();
                     foreach (var s in App.Cfg.Sites) if (s.Enabled) list.Add(s);
                     if (list.Count == 0) { _summary = "四个平台都停用了，先去「平台与关键词」打开一个"; return; }
-                    Ui(delegate { App.StartRunSites(list, "全部重开 · 自动投递"); });
+                    Ui(delegate { App.StartRunSites(list, "全部重开 · 自动投递", false); });
                     _summary = "四站已开始（打开浏览器 → 登录 → 自动投递）";
                 }
                 catch (Exception ex) { _summary = "重开失败：" + ex.Message; }
@@ -259,7 +263,7 @@ namespace AutoApply
                     try { Health.Reopen(s); } catch { }
                     var one = new List<SiteCfg>();
                     one.Add(s);
-                    Ui(delegate { App.StartRunSites(one, s.Name + " · 重开后自动投递"); });
+                    Ui(delegate { App.StartRunSites(one, s.Name + " · 重开后自动投递", false); });
                     _summary = s.Name + "：已开始（打开浏览器 → 登录 → 自动投递）";
                 }
                 catch (Exception ex) { _summary = "重开失败：" + ex.Message; }
@@ -295,7 +299,27 @@ namespace AutoApply
 
             float W = Width / T.S, H = Height / T.S;
             T.Draw(g, "平台健康", Fonts.H1, T.Text, 32, 24);
-            T.Draw(g, "「重开」会打开浏览器并进入该平台，登录 / 拖完滑块后自动开始投递", Fonts.Small, T.Text3, 32, 62);
+            // 正在跑的时候把这行副标题换成实时阶段：点了「重开」就不用再切页看进度
+            if (App.Engine != null && App.Engine.Running)
+            {
+                string st = App.Engine.Stage;
+                if (st == null || st.Length == 0) st = "准备中";
+                string who = App.Engine.CurrentSiteName;
+                string line = "● 正在运行 · " + (who != null && who.Length > 0 ? who + " · " : "") + st;
+                T.Draw(g, Fit(g, line, Fonts.Small, W - 200), Fonts.Small, T.Jade, 32, 62);
+                Ghost(g, new RectangleF(W - 452, 56, 96, 26), "运行日志", "health:log", T.Text2);
+            }
+            else if (App.Engine != null && !string.IsNullOrEmpty(App.Engine.LastChromeError))
+            {
+                // 起浏览器失败时，直接把原因写在这行，别让人再去翻日志
+                using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
+                    using (var br = new SolidBrush(T.Warn))
+                        g.DrawString("✕ " + App.Engine.LastChromeError, Fonts.Small, br, new RectangleF(32, 55, W - 200, 22), sf);
+            }
+            else
+            {
+                T.Draw(g, "「重开」会拉起程序专用浏览器（不是平时那个 Chrome），登录 / 拖完滑块后自动开始投递", Fonts.Small, T.Text3, 32, 62);
+            }
 
             // 右上操作按钮（右边留出窗口三键的位置）
             Ghost(g, new RectangleF(W - 452, 26, 108, 32), "全部检查", "health:check", T.Jade);
@@ -312,7 +336,7 @@ namespace AutoApply
             float kw = (W - 64f - 3 * 14f) / 4f;
             float ky = 100f, kh = 96f;
             Kpi(g, new RectangleF(32, ky, kw, kh), "CDP 端口 " + App.Cfg.Port, chrome ? "已连接" : "未连接",
-                chrome ? T.Jade : T.Danger, chrome ? "浏览器调试通道正常" : "点「全部检查」或先把浏览器打开");
+                chrome ? T.Jade : T.Danger, chrome ? "浏览器调试通道正常" : (AnyChromeNow ? "你的 Chrome 开着，但不是程序用的那个窗口" : "还没打开浏览器 · 点「重开」"));
             Kpi(g, new RectangleF(32 + kw + 14, ky, kw, kh), "Chrome", chrome && ver.Length > 0 ? ver : "—",
                 chrome ? T.Text : T.Text3, chrome ? "连接正常" : "还没连上调试端口");
             Kpi(g, new RectangleF(32 + (kw + 14) * 2, ky, kw, kh), "标签页", tabs.Count.ToString(),
@@ -355,7 +379,10 @@ namespace AutoApply
                 T.Draw(g, LastRunOf(s.Key), Fonts.Small, T.Text2, x + 110, ly);
 
                 string note = h != null && h.Note.Length > 0 && h.Note != "正常" ? h.Note : "";
-                if (note.Length == 0 && !chrome) note = "还没连上调试端口 · 点「重开」";
+                if (note.Length == 0 && !chrome) note = AnyChromeNow
+                    ? "你的 Chrome 开着，但没开调试通道 · 点「重开」用程序自己的窗口"
+                    : "还没连上调试端口 · 点「重开」";
+                if (h != null && h.Login == "no") note = "未登录 · 点「重开」后在弹出的浏览器窗口里登录";
                 if (note.Length > 0)
                     T.Draw(g, Fit(g, note, Fonts.Tiny, cw - 48f), Fonts.Tiny,
                            (h != null && h.Captcha) ? T.Danger : T.Warn, x + 36, y + chh - 34);
@@ -417,6 +444,7 @@ namespace AutoApply
 
         protected override void OnHit(string id)
         {
+            if (id == "health:log") { App.GotoPage("log"); return; }
             if (id == "health:check") { CheckAll(true); return; }
             if (id == "health:reopenall") { ReopenAll(); return; }
             if (id.StartsWith("health:check:"))

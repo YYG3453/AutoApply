@@ -4,9 +4,11 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Text;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Web.Script.Serialization;
 using Microsoft.Win32;
+using System.Management;
 
 namespace AutoApply
 {
@@ -49,6 +51,12 @@ namespace AutoApply
         public event Action<string> SiteSwith;
         /// <summary>某一站需要人工处理：siteName, reason。</summary>
         public event Action<string, string> SiteAttention;
+
+        /// <summary>当前阶段（健康页显示：打开浏览器 / 准备标签页 / 等待登录 / 投递中）。</summary>
+        public string Stage = "";
+
+        /// <summary>最近一次"起浏览器"失败的原因，健康页直接显示（空 = 没失败）。</summary>
+        public string LastChromeError = "";
 
         private Thread _worker;
         private Process _node;
@@ -211,6 +219,12 @@ namespace AutoApply
             lock (_chromeGate) { return EnsureChromeLocked(out msg); }
         }
 
+        // ------------------------------------------------------------------
+        // 起浏览器。以前这里只会说"浏览器启动后马上退出了"，真正的原因全靠猜；
+        // 现在：① 先清掉"占着配置目录但没开调试口"的旧 Chrome；
+        //       ② 把 Chrome 的 stderr / 退出码抓下来写进 autoapply.log；
+        //       ③ 按实际原因给三种不同的说法。
+        // ------------------------------------------------------------------
         private bool EnsureChromeLocked(out string msg)
         {
             msg = "";
@@ -218,7 +232,44 @@ namespace AutoApply
             var chrome = FindChrome();
             if (chrome == null) { msg = "没找到 Chrome / Edge，请在「平台与关键词」里手动指定浏览器路径"; return false; }
             var profile = Path.Combine(BaseDir, Cfg.ProfileDir);
-            if (!Directory.Exists(profile)) Directory.CreateDirectory(profile);
+            try { if (!Directory.Exists(profile)) Directory.CreateDirectory(profile); }
+            catch (Exception ex) { Program.Trace("EnsureChrome: 建配置目录失败 " + ex.Message); }
+
+            // 上一轮留下的 Chrome 还占着这份配置目录时，新进程只会把请求转交给它、然后自己退出，
+            // 而它当初没带调试端口 —— 端口就永远起不来。先把"用着这份配置"的那几个关掉。
+            int killed = KillChromeOnProfile(profile);
+            if (killed > 0)
+            {
+                Program.Trace("EnsureChrome: 关掉了 " + killed + " 个占着配置目录但没开调试端口的 Chrome");
+                Thread.Sleep(1000);
+            }
+
+            string why = "";
+            for (int attempt = 1; attempt <= 2; attempt++)
+            {
+                if (LaunchChrome(chrome, profile, out why))
+                {
+                    msg = "已打开浏览器（端口 " + Cfg.Port + "）";
+                    FocusBrowser(_chromePid);
+                    return true;
+                }
+                Program.Trace("EnsureChrome 第 " + attempt + " 次失败：" + why);
+                if (attempt == 1)
+                {
+                    int k2 = KillChromeOnProfile(profile);
+                    if (k2 > 0) { Program.Trace("EnsureChrome: 重试前再清掉 " + k2 + " 个 Chrome"); Thread.Sleep(1200); }
+                    else Thread.Sleep(600);
+                }
+            }
+            msg = why;
+            Program.Trace("EnsureChrome 放弃：" + why);
+            return false;
+        }
+
+        /// <summary>拉一个 Chrome 起来并等调试端口。失败时 why 里是能看懂的原因。</summary>
+        private bool LaunchChrome(string chrome, string profile, out string why)
+        {
+            why = "";
             string first = "https://www.zhipin.com/web/geek/job";
             foreach (var s in Cfg.Sites) { if (s.Enabled) { first = s.Url; break; } }
             var args = "--user-data-dir=\"" + profile + "\" --remote-debugging-port=" + Cfg.Port +
@@ -226,42 +277,191 @@ namespace AutoApply
                        " --disable-background-networking --disable-crash-reporter" +
                        " --window-size=1280,900 --window-position=180,60" +
                        " \"" + first + "\"";
-            Process proc = null;
+            var err = new StringBuilder();
+            Process proc;
             try
             {
                 var psi = new ProcessStartInfo(chrome, args);
                 psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
                 psi.WorkingDirectory = BaseDir;
-                proc = Process.Start(psi);
+                psi.RedirectStandardError = true;
+                psi.RedirectStandardOutput = true;
+                proc = new Process();
+                proc.StartInfo = psi;
+                proc.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e) { Collect(err, e.Data); };
+                proc.OutputDataReceived += delegate(object s, DataReceivedEventArgs e) { Collect(err, e.Data); };
+                proc.Start();
+                try { proc.BeginErrorReadLine(); proc.BeginOutputReadLine(); } catch { }
             }
-            catch (Exception ex) { msg = "启动浏览器失败：" + ex.Message; return false; }
-            for (int i = 0; i < 60; i++)
+            catch (Exception ex)
+            {
+                why = "启动浏览器失败：" + ex.Message;
+                return false;
+            }
+
+            for (int i = 0; i < 75; i++)      // 最长 30 秒
             {
                 Thread.Sleep(400);
                 if (ChromeUp())
                 {
-                    msg = "已打开浏览器（端口 " + Cfg.Port + "）";
-                    try { if (proc != null && !proc.HasExited) _chromePid = proc.Id; } catch { }
-                    FocusBrowser(_chromePid);
+                    try { if (!proc.HasExited) _chromePid = proc.Id; } catch { }
                     return true;
                 }
-                // 已有一个 Chrome 用着同一份配置目录时，新进程会立刻退出、端口永远不会起来。
-                // 早点把原因说清楚，别让用户对着"正在打开浏览器"等半分钟。
-                if (i >= 3 && proc != null)
+                if (i < 2) continue;
+                bool exited = false;
+                try { exited = proc.HasExited; } catch { }
+                if (!exited) continue;
+
+                int code = -1;
+                try { code = proc.ExitCode; } catch { }
+                string tail = SnipText(err);
+                string il = IntegrityLevel();
+                Program.Trace("Chrome 退出：code=" + code + " 权限=" + il + " stderr=" + tail);
+                if (tail.IndexOf("crash", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    tail.IndexOf("拒绝访问", StringComparison.Ordinal) >= 0)
                 {
-                    try
+                    why = "Chrome 被系统拒绝启动（退出码 " + code + "，本程序权限：" + il + "）。" +
+                          "这通常是本程序以受限权限跑起来的（沙箱 / 低完整性 / 计划任务），浏览器拉不起来。" +
+                          "请关掉它，正常双击 AutoApply.exe 再点一次。";
+                }
+                else if (code == 0 && tail.Length == 0)
+                {
+                    why = "浏览器把启动请求交给了一个已经在跑的 Chrome，然后自己退出了" +
+                          "（那个窗口没开调试端口 " + Cfg.Port + "）。已经自动清了一次还是这样 —— " +
+                          "把任务栏里的 Chrome 窗口全部关掉，再点一次「重开」。";
+                }
+                else
+                {
+                    why = "Chrome 启动后立刻退出（退出码 " + code + (il != "unknown" ? "，本程序权限：" + il : "") + "）" +
+                          (tail.Length > 0 ? "：" + tail : "");
+                }
+                return false;
+            }
+            why = "浏览器启动超时（30 秒没连上端口 " + Cfg.Port + "），检查一下 Chrome 是否被安全软件拦住";
+            return false;
+        }
+
+        private static void Collect(StringBuilder sb, string line)
+        {
+            if (line == null || line.Length == 0) return;
+            lock (sb) { if (sb.Length < 1600) sb.AppendLine(line); }
+        }
+
+        /// <summary>把 Chrome 的报错压成一行，别把整段 stderr 塞进提示里。</summary>
+        private static string SnipText(StringBuilder sb)
+        {
+            string s;
+            lock (sb) { s = sb.ToString(); }
+            if (s.Length == 0) return "";
+            var lines = s.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].IndexOf("ERROR", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                string t = lines[i].Trim();
+                int k = t.LastIndexOf("] ");
+                if (k > 0 && k + 2 < t.Length) t = t.Substring(k + 2);
+                return t.Length > 120 ? t.Substring(0, 120) : t;
+            }
+            string all = lines.Length > 0 ? lines[lines.Length - 1].Trim() : s.Trim();
+            return all.Length > 120 ? all.Substring(0, 120) : all;
+        }
+
+        /// <summary>
+        /// 关掉"命令行里带着我们这份配置目录"的 Chrome / Edge。
+        /// 只认配置目录：用户平时那个 Chrome 用的是默认目录，绝不会被误杀。
+        /// </summary>
+        private static int KillChromeOnProfile(string profile)
+        {
+            int n = 0;
+            try
+            {
+                using (var q = new ManagementObjectSearcher(
+                    "SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name='chrome.exe' OR Name='msedge.exe'"))
+                using (var rs = q.Get())
+                {
+                    foreach (ManagementObject mo in rs)
                     {
-                        if (proc.HasExited)
+                        string cmd = null;
+                        try { cmd = mo["CommandLine"] as string; } catch { }
+                        if (string.IsNullOrEmpty(cmd)) continue;
+                        if (cmd.IndexOf(profile, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                        int pid = 0;
+                        try { pid = Convert.ToInt32(mo["ProcessId"]); } catch { }
+                        if (pid <= 0) continue;
+                        try
                         {
-                            msg = "浏览器启动后马上退出了（多半是已经有一个用同一份配置打开的 Chrome 窗口，先把它完全关掉再试）";
-                            return false;
+                            var psi = new ProcessStartInfo("taskkill", "/PID " + pid + " /T /F");
+                            psi.UseShellExecute = false; psi.CreateNoWindow = true;
+                            psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
+                            using (var k = Process.Start(psi)) { k.WaitForExit(4000); }
+                            n++;
                         }
+                        catch { }
                     }
-                    catch { }
                 }
             }
-            msg = "浏览器启动超时（端口 " + Cfg.Port + " 没响应），检查一下 Chrome 是否被安全软件拦住";
-            return false;
+            catch (Exception ex) { Program.Trace("KillChromeOnProfile: " + ex.Message); }
+            return n;
+        }
+
+        // ---- 当前进程的完整性级别：low / untrusted 时 Chrome 一定拉不起来 ----
+        [DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
+        [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr h);
+        [DllImport("advapi32.dll", SetLastError = true)] private static extern bool OpenProcessToken(IntPtr p, int acc, out IntPtr tok);
+        [DllImport("advapi32.dll", SetLastError = true)] private static extern bool GetTokenInformation(IntPtr tok, int cls, IntPtr buf, int len, out int ret);
+        [DllImport("advapi32.dll")] private static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
+        [DllImport("advapi32.dll")] private static extern IntPtr GetSidSubAuthority(IntPtr sid, int idx);
+
+        // ---- 系统里有没有 Chrome 在跑（不看调试端口）。给界面用：区分"没开浏览器"和"开着但不是那个窗口" ----
+        private static bool _anyChromeSeen;
+        private static DateTime _anyChromeAt = DateTime.MinValue;
+
+        public static bool AnyChromeRunning()
+        {
+            if ((DateTime.Now - _anyChromeAt).TotalSeconds < 20) return _anyChromeSeen;
+            bool found = false;
+            try
+            {
+                using (var q = new ManagementObjectSearcher(
+                    "SELECT ProcessId FROM Win32_Process WHERE Name='chrome.exe' OR Name='msedge.exe'"))
+                using (var rs = q.Get())
+                {
+                    foreach (ManagementObject mo in rs) { found = true; break; }
+                }
+            }
+            catch (Exception ex) { Program.Trace("AnyChromeRunning: " + ex.Message); }
+            _anyChromeSeen = found;
+            _anyChromeAt = DateTime.Now;
+            return found;
+        }
+
+        public static string IntegrityLevel()
+        {
+            IntPtr tok = IntPtr.Zero, buf = IntPtr.Zero;
+            try
+            {
+                if (!OpenProcessToken(GetCurrentProcess(), 0x0008, out tok)) return "unknown";
+                int len;
+                GetTokenInformation(tok, 25, IntPtr.Zero, 0, out len);
+                if (len <= 0) return "unknown";
+                buf = Marshal.AllocHGlobal(len);
+                if (!GetTokenInformation(tok, 25, buf, len, out len)) return "unknown";
+                IntPtr sid = Marshal.ReadIntPtr(buf);
+                int cnt = Marshal.ReadByte(GetSidSubAuthorityCount(sid));
+                if (cnt <= 0) return "unknown";
+                int rid = Marshal.ReadInt32(GetSidSubAuthority(sid, cnt - 1));
+                if (rid < 0x1000) return "untrusted";
+                if (rid < 0x2000) return "low";
+                if (rid < 0x3000) return "medium";
+                return "high";
+            }
+            catch { return "unknown"; }
+            finally
+            {
+                if (buf != IntPtr.Zero) Marshal.FreeHGlobal(buf);
+                if (tok != IntPtr.Zero) CloseHandle(tok);
+            }
         }
 
         private List<string> ListUrls()
@@ -528,16 +728,20 @@ namespace AutoApply
             {
                 L("sys", "=== 开始运行 · " + RunWindowName + " · " + RunStarted.ToString("yyyy-MM-dd HH:mm:ss"));
                 string msg;
+                Stage = "打开浏览器";
                 bool chromeOk = EnsureChrome(out msg);
+                Stage = chromeOk ? "准备标签页" : "";
                 if (chromeOk)
                 {
                     L("info", msg);
+                    LastChromeError = "";
                     L("info", "提示：如果浏览器里还没登录四个平台，请先手动登录一次（登录会记住）");
                 }
                 else
                 {
                     // 浏览器起不来，后面每一站都只会空转（开标签页还要各等 30 秒），直接收尾。
                     L("err", msg);
+                    LastChromeError = msg;
                     var at0 = SiteAttention;
                     if (at0 != null) { try { at0("浏览器", msg); } catch { } }
                 }
@@ -597,6 +801,7 @@ namespace AutoApply
                     if (!ready)
                     {
                         int waitSec = _loginWaitFailed ? 0 : LoginWaitSec();
+                        Stage = waitSec > 0 ? ("等待登录：" + s.Name) : ("检查 " + s.Name);
                         ready = WaitSiteReady(s, waitSec, out reason);
                         if (!ready && waitSec > 0) _loginWaitFailed = true;
                     }
@@ -613,6 +818,7 @@ namespace AutoApply
                         continue;
                     }
 
+                    Stage = "投递中：" + s.Name;
                     if (carry > 0)
                     {
                         int oldMin = s.Minutes;

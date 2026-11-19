@@ -14,7 +14,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.8.7";
+        public const string Version = "1.8.8";
 
         /// <summary>--tray：启动后只呆在托盘里，不弹窗口（给计划任务用）。</summary>
         public bool StartInTray;
@@ -135,7 +135,8 @@ namespace AutoApply
                 }
             }
             T.SetNight(theme != "day");
-            Program.Trace("theme resolved = '" + theme + "' cfg='" + Cfg.Theme + "' night=" + T.Night + " bg=" + T.Bg.ToArgb().ToString("X8"));
+            Program.Trace("theme resolved = '" + theme + "' cfg='" + Cfg.Theme + "' night=" + T.Night + " bg=" + T.Bg.ToArgb().ToString("X8"));
+            Program.Trace("integrity = " + Engine.IntegrityLevel() + "  (low/untrusted 时浏览器拉不起来)");
 
             // v1.8.6：保留系统边框样式（Sizable → WS_THICKFRAME），再用 WM_NCCALCSIZE 把非客户区清零。
             // 这样窗口在 Win11 上才算"有框窗口"，DWM 才会给圆角 + 投影；
@@ -472,6 +473,12 @@ namespace AutoApply
         /// </summary>
         public void StartRunSites(List<SiteCfg> sites, string windowName)
         {
+            StartRunSites(sites, windowName, true);
+        }
+
+        /// <summary>jumpToLog=false 时留在当前页（平台健康的「重开」用），不抢用户的视线。</summary>
+        public void StartRunSites(List<SiteCfg> sites, string windowName, bool jumpToLog)
+        {
             Program.Trace("StartRunSites enter running=" + (Engine == null ? "null-engine" : Engine.Running.ToString()) + " want=" + (sites == null ? -1 : sites.Count));
             if (Engine.Running) { Toast("已经在跑了，先点「停止」或等这一轮结束"); return; }
             var list = new List<SiteCfg>();
@@ -484,7 +491,7 @@ namespace AutoApply
                 Program.Trace("StartRunSites started sites=" + list.Count + " first=" + list[0].Key);
             }
             catch (Exception ex) { Program.Trace("StartRunSites throw: " + ex.GetType().Name + ": " + ex.Message); return; }
-            ShowPage("log");
+            if (jumpToLog) ShowPage("log");
             _log.View.Add("sys", "=== " + windowName + " · 先检查浏览器和登录状态");
         }
 
