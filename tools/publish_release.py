@@ -3,9 +3,10 @@ import ctypes, json, os, sys, time, urllib.request, urllib.error
 sys.stdout.reconfigure(encoding="utf-8")
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = "YYG3453/AutoApply"
-TAG = "v1.8.8"
-ZIP = os.path.join(HERE, "..", "dist", "AutoApply-1.8.8-win-x64.zip")
-ASSET = "AutoApply-1.8.8-win-x64.zip"
+VER = (sys.argv[1] if len(sys.argv) > 1 else "1.8.9").lstrip("v")
+TAG = "v" + VER
+ZIP = os.path.join(HERE, "..", "dist", "AutoApply-%s-win-x64.zip" % VER)
+ASSET = "AutoApply-%s-win-x64.zip" % VER
 
 
 class CREDENTIAL(ctypes.Structure):

@@ -168,7 +168,16 @@ namespace AutoApply
             string raw = RunTool("evalfile.js", "probe-health.js", s.Match);
             if (raw.Length == 0)
             {
-                h.Note = "页面没响应";
+                // 标签页可能正在跳转（刚点「重开」时最常见），等一下再问一次
+                System.Threading.Thread.Sleep(900);
+                raw = RunTool("evalfile.js", "probe-health.js", s.Match);
+            }
+            if (raw.Length == 0)
+            {
+                string u = h.Url == null ? "" : h.Url.ToLowerInvariant();
+                h.Note = (u.IndexOf("login") >= 0 || u.IndexOf("passport") >= 0)
+                    ? "未登录 · 点「重开」后在这个窗口里登录"
+                    : "页面没响应";
                 return h;
             }
             // cdp.js eval 会把返回值原样打印，这里可能是带引号的 JSON 字符串

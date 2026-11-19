@@ -74,13 +74,15 @@ namespace AutoApply
             Health.ScriptDir = App.Engine.ScriptDir;
             ThreadPool.QueueUserWorkItem(delegate
             {
+                bool alive = false, was = false;
                 try
                 {
-                    bool alive = Health.ChromeAlive();
+                    alive = Health.ChromeAlive();
                     string ver = alive ? Health.ChromeVersion() : "";
                     List<string> tabs = alive ? Health.Tabs() : new List<string>();
                     lock (_gate)
                     {
+                        was = _chrome;
                         _chrome = alive;
                         _anyChrome = Engine.AnyChromeRunning();
                         _chromeVer = ver;
@@ -92,6 +94,8 @@ namespace AutoApply
                 finally
                 {
                     Volatile.Write(ref _probing, 0);
+                    // 浏览器刚从「没连上」变成「连上」：把上一次留下的旧结论重查一遍，别让人看着假红字
+                    if (alive && !was && _checkedOnce && !BusyNow) Ui(delegate { CheckAll(false, true); });
                     Ui(delegate { Invalidate(); });
                 }
             });
