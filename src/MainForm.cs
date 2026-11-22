@@ -14,7 +14,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.8.9";
+        public const string Version = "1.9.0";
 
         /// <summary>--tray：启动后只呆在托盘里，不弹窗口（给计划任务用）。</summary>
         public bool StartInTray;
@@ -137,7 +137,7 @@ namespace AutoApply
                 }
             }
             T.SetNight(theme != "day");
-            Program.Trace("theme resolved = '" + theme + "' cfg='" + Cfg.Theme + "' night=" + T.Night + " bg=" + T.Bg.ToArgb().ToString("X8"));
+            Program.Trace("theme resolved = '" + theme + "' cfg='" + Cfg.Theme + "' night=" + T.Night + " bg=" + T.Bg.ToArgb().ToString("X8"));
             Program.Trace("integrity = " + Engine.IntegrityLevel() + "  (low/untrusted 时浏览器拉不起来)");
 
             // v1.8.6：保留系统边框样式（Sizable → WS_THICKFRAME），再用 WM_NCCALCSIZE 把非客户区清零。
@@ -651,6 +651,8 @@ namespace AutoApply
         protected override void OnKeyDown(KeyEventArgs e)
         {
             base.OnKeyDown(e);
+            // 焦点在搜索框里时，Esc 是「清空输入」，不该顺手把投递停了
+            if (ActiveControl is TextBoxBase) return;
             if (e.KeyCode == Keys.F5) StartRunManual();
             else if (e.KeyCode == Keys.Escape) StopRun();
         }

@@ -964,7 +964,7 @@ namespace AutoApply
             var W = Width / T.S;
             ClearHits();
             T.Draw(g, "运行日志", Fonts.H1, T.Text, 32, 20);
-            T.Draw(g, "实时输出 · 鼠标滚轮翻看历史", Fonts.Small, T.Text2, 32, 55);
+            T.Draw(g, "实时输出 · 鼠标滚轮 / 拖动右侧滚动条翻看历史", Fonts.Small, T.Text2, 32, 55);
             DrawSmallGhost(g, new RectangleF(W - 428, 26, 74, 30), "清空", "clear");
             DrawSmallGhost(g, new RectangleF(W - 346, 26, 84, 30), "复制全部", "copy");
             DrawSmallGhost(g, new RectangleF(W - 254, 26, 94, 30), "打开报告", "report");

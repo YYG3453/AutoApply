@@ -24,15 +24,58 @@ namespace AutoApply
         private int _builtCount = -1;
         private int _hoverRow = -1;
         private string _day = "";        // yyyy-MM-dd：从仪表盘点某一天下来时只看这天
-        private string _city = "";       // 从城市环形下来的
+        private string _city = "";       // 从城市环形下来的 / 城市快捷筛选
+        private string _q = "";          // 搜索框原文
+        private string[] _terms = new string[0];
+        private string[] _cities = new string[0];   // 当前范围下投递量前几的城市
+        private readonly SearchField _qBox;
 
         private const float RowH = 30f;
         private const float HeadH = 30f;
+        private const float QueryY = 96f;      // 第一行：搜索 + 城市
+        private const float ToolY = 134f;      // 第二行：时间 + 平台 + 导出
+        private const float CardTop = 178f;    // 表格卡片起点
 
         public RecordsPage(MainForm app) : base(app)
         {
             BackColor = T.Bg;
+            _qBox = new SearchField { Placeholder = "搜索公司 / 岗位 / 城市 / 关键词" };
+            _qBox.TextChanged += delegate
+            {
+                _q = _qBox.Text.Trim();
+                _terms = _q.Length == 0
+                    ? new string[0]
+                    : _q.Split(new[] { ' ', '\t', '，' }, StringSplitOptions.RemoveEmptyEntries);
+                ResetAndRefresh();
+            };
+            Controls.Add(_qBox);
+            Relayout();
         }
+
+        protected override void OnKey(KeyEventArgs e)
+        {
+            base.OnKey(e);
+            if (e.Control && e.KeyCode == Keys.F) { _qBox.Focus(); _qBox.SelectAll(); e.Handled = true; }
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            Relayout();
+        }
+
+        private void Relayout()
+        {
+            // 搜索框是原生子控件：位置要按像素缩放进父页面，文字区域两边留出放大镜和 ✕
+            _qBox.Bounds = new Rectangle(T.RS(32 + 30), T.RS(QueryY + 6), T.RS(300 - 30 - 30), T.RS(19));
+        }
+
+        public override void RefreshTheme()
+        {
+            base.RefreshTheme();
+            _qBox.RefreshTheme();
+        }
+
 
         // ---------------- 数据 ----------------
         private static string SiteNameOf(string key)
@@ -55,18 +98,26 @@ namespace AutoApply
             else if (_range == 1) from = DateTime.Today.AddDays(-6);
             else if (_range == 2) from = DateTime.Today.AddDays(-29);
 
+            var cityCount = new Dictionary<string, int>();
             for (int i = 0; i < all.Count; i++)
             {
                 var r = all[i];
                 if (_site.Length > 0 && r.SiteKey != _site) continue;
                 if (_day.Length > 0 && (!r.HasTs || r.Ts.ToString("yyyy-MM-dd") != _day)) continue;
-                if (_city.Length > 0 && r.City != _city) continue;
                 if (from > DateTime.MinValue)
                 {
                     if (!r.HasTs || r.Ts < from) continue;
                 }
+                if (!MatchQuery(r)) continue;
+                // 城市快捷筛选要跟着当前的时间/平台/搜索条件走，但别被自己筛掉
+                if (r.City.Length > 0)
+                {
+                    int cv; cityCount.TryGetValue(r.City, out cv); cityCount[r.City] = cv + 1;
+                }
+                if (_city.Length > 0 && r.City != _city) continue;
                 _view.Add(r);
             }
+            _cities = BuildCityList(cityCount);
 
             _view.Sort(delegate (JobRec a, JobRec b)
             {
@@ -85,6 +136,40 @@ namespace AutoApply
 
             _scroll = 0f;
             _hoverRow = -1;
+        }
+
+        /// <summary>空格分词、全部命中才算——"成都 实施"= 成都的实施岗。</summary>
+        private bool MatchQuery(JobRec r)
+        {
+            for (int i = 0; i < _terms.Length; i++)
+            {
+                var w = _terms[i];
+                if (!Has(r.Company, w) && !Has(r.Title, w) && !Has(r.City, w) &&
+                    !Has(r.SiteName, w) && !Has(r.Kw, w) && !Has(r.Salary, w) && !Has(r.Loc, w))
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool Has(string s, string w)
+        {
+            return !string.IsNullOrEmpty(s) && s.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>城市快捷筛选：投递量前 6；选中的那个一定留在列表里，不然会被自己的筛选藏起来。</summary>
+        private string[] BuildCityList(Dictionary<string, int> counts)
+        {
+            var list = new List<KeyValuePair<string, int>>(counts);
+            list.Sort(delegate (KeyValuePair<string, int> a, KeyValuePair<string, int> b)
+            {
+                int c = b.Value.CompareTo(a.Value);
+                return c != 0 ? c : string.CompareOrdinal(a.Key, b.Key);
+            });
+            var top = new List<string>();
+            for (int i = 0; i < list.Count && top.Count < 6; i++)
+                if (list[i].Key.Length > 0) top.Add(list[i].Key);
+            if (_city.Length > 0 && !top.Contains(_city)) top.Insert(0, _city);
+            return top.ToArray();
         }
 
         private void EnsureBuilt()
@@ -156,6 +241,19 @@ namespace AutoApply
             AddHit(id, r);
         }
 
+        // 卡片与表体的位置只算一次，OnPaint / OnMouseWheel / RowAt 共用，避免三处尺寸越改越乱
+        private static RectangleF CardRect(float w, float h)
+        {
+            return new RectangleF(32f, CardTop, w - 64f, h - CardTop - 22f);
+        }
+
+        private static RectangleF BodyRect(RectangleF card)
+        {
+            const float padL = 18f;
+            float listTop = card.Y + 8f + HeadH + 4f;
+            return new RectangleF(card.X + padL, listTop, card.Width - padL * 2 - 10f, card.Bottom - 8f - listTop);
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
@@ -186,8 +284,46 @@ namespace AutoApply
                 fx += 118;
             }
 
-            // 工具栏
-            float ty = 96f;
+            // ---- 第一行：搜索 + 城市快捷筛选 ----
+            float qx = 32f, qy = QueryY, qw = 300f, qh = 30f;
+            var qR = new RectangleF(qx, qy, qw, qh);
+            T.FillRound(g, qR, 9f, T.Field);
+            T.StrokeRound(g, qR, 9f, _qBox.Focused ? T.Alpha(T.Jade, 200) : T.Line, 1f);
+            using (var pen = new Pen(T.Text3, 1.3f))
+            {
+                g.DrawEllipse(pen, qx + 11f, qy + 9f, 9f, 9f);           // 放大镜
+                g.DrawLine(pen, qx + 18.4f, qy + 16.8f, qx + 21.8f, qy + 20.2f);
+            }
+            AddHit("focus:q", qR);
+            if (_q.Length > 0)
+            {
+                var xr = new RectangleF(qR.Right - 26f, qy + 7f, 16f, 16f);
+                bool xhv = HoverCur.ContainsKey("clr:q") && HoverCur["clr:q"] > 0.5f;
+                T.FillRound(g, xr, 8f, xhv ? T.HoverSoftHi : T.HoverSoft);
+                T.TextC(g, "✕", T.F(9f), xhv ? T.Text : T.Text2, xr);
+                AddHit("clr:q", xr);
+            }
+
+            float chipX = qR.Right + 14f;
+            float limitX = W - 32f - 88f - 14f;                      // 右边留给「清空筛选」
+            float allW = Math.Max(64f, g.MeasureString("全部城市", Fonts.Small).Width + 22f);
+            if (chipX + allW <= limitX)
+            {
+                Chip(g, new RectangleF(chipX, qy, allW, qh), "city:", "全部城市", _city.Length == 0, T.Blue);
+                chipX += allW + 6f;
+                for (int i = 0; i < _cities.Length; i++)
+                {
+                    string city = _cities[i];
+                    float cw = Math.Max(50f, g.MeasureString(city, Fonts.Small).Width + 22f);
+                    if (chipX + cw > limitX) break;
+                    Chip(g, new RectangleF(chipX, qy, cw, qh), "city:" + city, city, _city == city, T.Blue);
+                    chipX += cw + 6f;
+                }
+            }
+            Button(g, new RectangleF(W - 32f - 88f, qy, 88f, qh), "reset", "清空筛选");
+
+            // ---- 第二行：时间范围 + 平台 + 导出 ----
+            float ty = ToolY;
             float x = 32f;
             var ranges = new[] { "今天", "近 7 天", "近 30 天", "全部" };
             for (int i = 0; i < ranges.Length; i++)
@@ -213,7 +349,7 @@ namespace AutoApply
             Button(g, expR, "export", "导出 CSV");
 
             // 表格卡片
-            var card = new RectangleF(32f, ty + 44f, W - 64f, H - (ty + 44f) - 22f);
+            var card = CardRect(W, H);
             T.Card(g, card);
 
             float padL = 18f;
@@ -238,16 +374,16 @@ namespace AutoApply
             T.Hairline(g, card.X + padL, card.Right - padL - 6f, card.Y + 8f + HeadH);
 
             // 表体
-            float listTop = card.Y + 8f + HeadH + 4f;
-            float listH = card.Bottom - 8f - listTop;
-            var body = new RectangleF(card.X + padL, listTop, innerW, listH);
+            var body = BodyRect(card);
+            float listH = body.Height;
 
             if (_view.Count == 0)
             {
-                string msg = _day.Length > 0 ? "这一天没有投递记录"
-                           : ((_range == 0) ? "今天还没有投递记录" : "这个筛选条件下没有记录");
+                bool filtered = _q.Length > 0 || _city.Length > 0 || _day.Length > 0 || _site.Length > 0;
+                string msg = filtered ? "这个筛选条件下没有记录"
+                           : ((_range == 0) ? "今天还没有投递记录" : "还没有投递记录");
                 T.TextC(g, msg, Fonts.Small, T.Text3, new RectangleF(body.X, body.Y + Math.Min(60f, listH / 3f), body.Width, 24f));
-                T.TextC(g, "换个时间范围或平台再看", Fonts.Tiny, T.Text3, new RectangleF(body.X, body.Y + Math.Min(84f, listH / 3f) + 6f, body.Width, 20f));
+                T.TextC(g, filtered ? "试试少打几个字，或点右上角「清空筛选」" : "换个时间范围或平台再看", Fonts.Tiny, T.Text3, new RectangleF(body.X, body.Y + Math.Min(84f, listH / 3f) + 6f, body.Width, 20f));
             }
             else
             {
@@ -303,6 +439,21 @@ namespace AutoApply
             }
             if (id == "clr:day") { _day = ""; ResetAndRefresh(); return; }
             if (id == "clr:city") { _city = ""; ResetAndRefresh(); return; }
+            if (id == "focus:q") { _qBox.Focus(); return; }
+            if (id == "clr:q") { _qBox.Text = ""; return; }
+            if (id.StartsWith("city:"))
+            {
+                _city = id.Substring(5);
+                ResetAndRefresh();
+                return;
+            }
+            if (id == "reset")
+            {
+                _qBox.Text = ""; _q = ""; _terms = new string[0];
+                _day = ""; _city = ""; _site = ""; _range = 3;
+                ResetAndRefresh();
+                return;
+            }
             if (id.StartsWith("site:"))
             {
                 _site = id.Substring(5);
@@ -323,7 +474,7 @@ namespace AutoApply
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
-            float listH = Height / T.S - 190f;
+            float listH = BodyRect(CardRect(Width / T.S, Height / T.S)).Height;
             float maxScroll = Math.Max(0f, _view.Count * RowH - listH);
             _scroll -= e.Delta / 120f * RowH * 3f;
             if (_scroll < 0f) _scroll = 0f;
@@ -349,11 +500,12 @@ namespace AutoApply
         {
             var lp = T.LP(p);
             float W = Width / T.S, H = Height / T.S;
-            var card = new RectangleF(32f, 96f + 44f, W - 64f, H - (96f + 44f) - 22f);
-            float listTop = card.Y + 8f + HeadH + 4f;
-            float listH = card.Bottom - 8f - listTop;
+            var card = CardRect(W, H);
+            var body = BodyRect(card);
+            float listTop = body.Y;
+            float listH = body.Height;
             if (lp.Y < listTop || lp.Y > listTop + listH) return -1;
-            if (lp.X < card.X + 18f || lp.X > card.Right - 18f) return -1;
+            if (lp.X < body.X || lp.X > body.Right) return -1;
             int idx = (int)((lp.Y - listTop + _scroll) / RowH);
             return (idx >= 0 && idx < _view.Count) ? idx : -1;
         }

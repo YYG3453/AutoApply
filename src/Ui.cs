@@ -402,8 +402,10 @@ namespace AutoApply
     {
         public struct Line { public string Time; public string Level; public string Text; }
         private readonly List<Line> _lines = new List<Line>();
-        private int _scroll;          // 0 = 最底部
+        private int _scroll;          // 起始行号：0 = 最上面一行
         private const int LH = 19;
+        private int _dragOff = -1;    // >= 0 表示正在拖滑块：按下时鼠标到滑块顶部的距离
+        private bool _barHot;
 
         public LogView()
         {
@@ -419,13 +421,19 @@ namespace AutoApply
 
         public void Add(string level, string text)
         {
+            // 加之前就在底部，加完继续贴着底走；用户往上翻着看历史时不要把他拽回去
+            bool stick = _scroll >= MaxScroll;
             _lines.Add(new Line { Time = DateTime.Now.ToString("HH:mm:ss"), Level = level, Text = text });
-            if (_lines.Count > 4000) _lines.RemoveRange(0, 1000);
-            if (_scroll == 0) ScrollToEnd();
+            if (_lines.Count > 4000)
+            {
+                _lines.RemoveRange(0, 1000);
+                _scroll = Math.Max(0, _scroll - 1000);
+            }
+            if (stick) ScrollToEnd();
             Invalidate();
         }
 
-        public void Clear() { _lines.Clear(); _scroll = 0; Invalidate(); }
+        public void Clear() { _lines.Clear(); _scroll = 0; _dragOff = -1; Invalidate(); }
         public string AllText()
         {
             var sb = new System.Text.StringBuilder();
@@ -433,10 +441,30 @@ namespace AutoApply
             return sb.ToString();
         }
 
-        private void ScrollToEnd()
+        private int VisibleRows { get { return Math.Max(1, (Height - 12) / LH); } }
+        private int MaxScroll { get { return Math.Max(0, _lines.Count - VisibleRows); } }
+
+        private void ScrollToEnd() { _scroll = MaxScroll; }
+
+        // 滚动条几何：贴右边缘的一条 6px 轨道，滑块高度按"可见行 / 总行"算
+        private RectangleF Track { get { return new RectangleF(Width - 12, 10, 6, Math.Max(8, Height - 20)); } }
+
+        private RectangleF Thumb
         {
-            int rows = Math.Max(1, (Height - 12) / LH);
-            _scroll = Math.Max(0, _lines.Count - rows);
+            get
+            {
+                var tr = Track;
+                float h = tr.Height * Math.Min(1f, (float)VisibleRows / Math.Max(1, _lines.Count));
+                if (h < 28f) h = 28f;
+                if (h > tr.Height) h = tr.Height;
+                float p = MaxScroll <= 0 ? 0f : (float)_scroll / MaxScroll;
+                return new RectangleF(tr.X, tr.Y + (tr.Height - h) * p, tr.Width, h);
+            }
+        }
+
+        private RectangleF BarZone
+        {
+            get { var tr = Track; return new RectangleF(tr.X - 6f, tr.Y, tr.Width + 10f, tr.Height); }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -447,8 +475,13 @@ namespace AutoApply
             T.StrokeRound(g, new RectangleF(0, 0, Width, Height), 12f, T.LineSoft);
 
             var f = T.Mono(12f);
-            int rows = Math.Max(1, (Height - 12) / LH);
-            int start = Math.Max(0, Math.Min(_scroll, Math.Max(0, _lines.Count - rows)));
+            int rows = VisibleRows;
+            int start = Math.Max(0, Math.Min(_scroll, MaxScroll));
+            bool bar = MaxScroll > 0;
+
+            // 长行别钻到滚动条底下：正文单独裁一块
+            var clip = g.Save();
+            g.SetClip(new RectangleF(0, 0, Width - (bar ? 16f : 2f), Height));
             float y = 8;
             for (int i = start; i < Math.Min(_lines.Count, start + rows); i++)
             {
@@ -463,17 +496,133 @@ namespace AutoApply
                 T.Draw(g, l.Text, f, col, 78, y);
                 y += LH;
             }
+            g.Restore(clip);
+
             if (_lines.Count == 0)
                 T.Draw(g, "等待运行 …", T.Mono(12f), T.Text3, 14, 10);
+
+            if (bar)
+            {
+                T.FillRound(g, Track, 3f, T.Alpha(T.LineSoft, 190));
+                bool active = _dragOff >= 0 || _barHot;
+                T.FillRound(g, Thumb, 3f, active ? T.LineHi : T.Line2);
+            }
         }
 
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
-            int rows = Math.Max(1, (Height - 12) / LH);
+            if (MaxScroll <= 0) return;
             _scroll -= Math.Sign(e.Delta) * 3;
-            _scroll = Math.Max(0, Math.Min(_scroll, Math.Max(0, _lines.Count - rows)));
+            if (_scroll < 0) _scroll = 0;
+            if (_scroll > MaxScroll) _scroll = MaxScroll;
             Invalidate();
+        }
+
+        private void DragTo(int mouseY)
+        {
+            var tr = Track;
+            float span = tr.Height - Thumb.Height;
+            if (span < 1f) return;
+            float p = (mouseY - tr.Y - _dragOff) / span;
+            if (p < 0f) p = 0f; else if (p > 1f) p = 1f;
+            _scroll = (int)Math.Round(p * MaxScroll);
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button != MouseButtons.Left || MaxScroll <= 0) return;
+            if (!BarZone.Contains(e.Location)) return;
+            var th = Thumb;
+            if (e.Y >= th.Top && e.Y <= th.Bottom)
+            {
+                _dragOff = (int)(e.Y - th.Top);      // 抓着滑块拖：保持按下的那个点不跳
+            }
+            else
+            {
+                _dragOff = (int)(th.Height / 2f);    // 点轨道空白：滑块中心跳过来，然后可以接着拖
+                DragTo(e.Y);
+            }
+            Capture = true;                          // 拖出控件也继续跟手
+            Invalidate();
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (_dragOff >= 0) { DragTo(e.Y); return; }
+            bool hot = MaxScroll > 0 && BarZone.Contains(e.Location);
+            if (hot != _barHot)
+            {
+                _barHot = hot;
+                Cursor = hot ? Cursors.Hand : Cursors.Default;
+                Invalidate();
+            }
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            if (_dragOff < 0) return;
+            _dragOff = -1;
+            Capture = false;
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            if (_dragOff >= 0) return;               // 拖动中不算离开
+            if (_barHot) { _barHot = false; Invalidate(); }
+        }
+    }
+
+    // ---------------- 搜索框 ----------------
+    /// <summary>
+    /// 带占位字的单行输入框：真的 TextBox（中文输入法可用），只是把边框交给外面画。
+    /// 空且没焦点时补一行占位字；Esc 清空，省得用户去按右下角那个 ✕。
+    /// </summary>
+    internal class SearchField : TextBox
+    {
+        public string Placeholder = "";
+
+        public SearchField()
+        {
+            BorderStyle = BorderStyle.None;
+            BackColor = T.Field;
+            ForeColor = T.Text;
+            Font = T.F(12.5f);
+        }
+
+        public void RefreshTheme()
+        {
+            BackColor = T.Field;
+            ForeColor = T.Text;
+            Invalidate();
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            // WM_PAINT：基类画完（空的时候什么都没有）再补占位字，不然得套一个假的 Label
+            if (m.Msg == 0x000F && Text.Length == 0 && !Focused)
+            {
+                using (var g = Graphics.FromHwnd(Handle))
+                    TextRenderer.DrawText(g, Placeholder, Font, ClientRectangle, T.Text3,
+                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            }
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (e.KeyCode == Keys.Escape && Text.Length > 0)
+            {
+                Text = "";
+                e.Handled = e.SuppressKeyPress = true;
+            }
         }
     }
 
