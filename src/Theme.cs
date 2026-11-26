@@ -163,16 +163,84 @@ namespace AutoApply
                 Blue = Color.FromArgb(0x2C, 0x6B, 0xB0);
             }
             if (night) ApplyNightStyle(NightStyle);
+            // GitHub 是唯一一套"日夜都成立"的皮肤：白天走 Primer Light，夜里走 Primer Dark。
+            else if (NightStyle == 5) ApplyGithub(false);
         }
 
-        /// <summary>夜晚模式的三套备选配色（0 石墨灰 / 1 墨蓝夜 / 2 暖夜）。</summary>
+        /// <summary>夜晚模式的备选配色（0 石墨灰 / 1 墨蓝夜 / 2 暖夜 / 3 深海蓝 / 4 深蓝 / 5 GitHub）。</summary>
         public static int NightStyle = 4;
+
+        /// <summary>皮肤名字：右键菜单、Toast 文案共用这一张表，顺序就是编号。</summary>
+        public static readonly string[] StyleNames = { "石墨灰", "墨蓝夜", "暖夜", "深海蓝", "深蓝", "GitHub" };
+
+        public static string StyleName(int style)
+        {
+            if (style < 0) style = 0;
+            if (style >= StyleNames.Length) style = StyleNames.Length - 1;
+            return StyleNames[style];
+        }
+
+        /// <summary>皮肤选择面板里的第二行小字：说清这套配色是什么感觉，光看名字分不出来。</summary>
+        public static readonly string[] StyleDesc =
+        {
+            "中灰底 · 低对比，久看不刺眼",
+            "冷蓝灰 · 类 VS Code 深色",
+            "炭褐底 · 偏暖，夜里不泛蓝",
+            "深蓝黑 · 薄荷绿撞色",
+            "深蓝底 · 默认",
+            "GitHub Primer · 绿按钮"
+        };
+
+        /// <summary>一套皮肤的代表色，只用于画缩略图。</summary>
+        public struct SkinSwatch
+        {
+            public Color Bg, Surface, Line, Accent, Ink;
+        }
+
+        private static readonly System.Collections.Generic.Dictionary<string, SkinSwatch> _swCache =
+            new System.Collections.Generic.Dictionary<string, SkinSwatch>();
+
+        /// <summary>
+        /// 取某套皮肤的代表色，取完把调色板原样还回去（界面不受影响）。
+        /// 直接复用 SetNight 的结果，避免缩略图另抄一份颜色、以后改色对不上。
+        /// </summary>
+        public static SkinSwatch SwatchOf(int style, bool dark)
+        {
+            string key = style + (dark ? "d" : "l");
+            SkinSwatch cached;
+            if (_swCache.TryGetValue(key, out cached)) return cached;
+
+            var t = typeof(T);
+            var fs = t.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            var saved = new System.Collections.Generic.Dictionary<System.Reflection.FieldInfo, object>();
+            foreach (var f in fs)
+                if (f.FieldType == typeof(Color)) saved[f] = f.GetValue(null);
+
+            bool oldNight = Night;
+            int oldStyle = NightStyle;
+            SkinSwatch sw;
+            try
+            {
+                NightStyle = style;
+                SetNight(dark);
+                sw = new SkinSwatch { Bg = Bg, Surface = Surface, Line = Line, Accent = Jade, Ink = JadeInk };
+            }
+            finally
+            {
+                foreach (var kv in saved) kv.Key.SetValue(null, kv.Value);
+                Night = oldNight;
+                NightStyle = oldStyle;
+            }
+            _swCache[key] = sw;
+            return sw;
+        }
 
         /// <summary>在基础夜色调色板之上叠加一套"更护眼"的取值。</summary>
         public static void ApplyNightStyle(int style)
         {
             if (!Night) return;
-            NightStyle = style < 0 || style > 4 ? 4 : style;
+            NightStyle = style < 0 ? 0 : (style > 5 ? 4 : style);
+            if (NightStyle == 5) { ApplyGithub(true); return; }
             switch (NightStyle)
             {
                 case 4: // 用户指定：右侧底 #031422 / 左侧与卡片 #0F172A / 悬停 #1E293B
@@ -255,6 +323,50 @@ namespace AutoApply
                     JadeInk = Color.FromArgb(0x0A, 0x1E, 0x19); JadeInk2 = Color.FromArgb(0x0B, 0x24, 0x1E);
                     Gold = Color.FromArgb(0xD3, 0xAE, 0x6C); Warn = Color.FromArgb(0xDD, 0x9A, 0x60); Danger = Color.FromArgb(0xD5, 0x6E, 0x6A); Blue = Color.FromArgb(0x6E, 0xA2, 0xD2);
                     break;
+            }
+        }
+
+        /// <summary>
+        /// GitHub 皮肤：整张调色板照 Primer 的取值抄（Canvas / Border / fg / success / accent / danger）。
+        /// 深色是 #0D1117 画布 + #161B22 面层 + #30363D 边框；浅色是白画布 + #F6F8FA 面层 + #D0D7DE 边框。
+        /// 主按钮用 GitHub 那种绿（#238636 深色 / #1F883D 浅色），链接蓝放在 T.Blue 上。
+        /// </summary>
+        public static void ApplyGithub(bool dark)
+        {
+            if (dark)
+            {
+                Bg = Color.FromArgb(0x0D, 0x11, 0x17); BgTop = Color.FromArgb(0x0D, 0x11, 0x17); Bg2 = Color.FromArgb(0x16, 0x1B, 0x22);
+                Surface = Color.FromArgb(0x16, 0x1B, 0x22); SurfaceHi = Color.FromArgb(0x1C, 0x21, 0x28);
+                Line = Color.FromArgb(0x30, 0x36, 0x3D); LineSoft = Color.FromArgb(0x21, 0x26, 0x2D);
+                RailTop = Color.FromArgb(0x01, 0x04, 0x09); RailSel = Color.FromArgb(0x16, 0x1B, 0x22);
+                Panel2 = Color.FromArgb(0x0D, 0x11, 0x17); Panel3 = Color.FromArgb(0x16, 0x1B, 0x22); Panel4 = Color.FromArgb(0x12, 0x17, 0x1E);
+                Field = Color.FromArgb(0x0D, 0x11, 0x17); Console = Color.FromArgb(0x01, 0x04, 0x09);
+                HoverSoft = Color.FromArgb(0x1C, 0x21, 0x28); HoverSoftHi = Color.FromArgb(0x26, 0x2C, 0x36); HoverSoft2 = Color.FromArgb(0x21, 0x26, 0x2D);
+                BtnHover = Color.FromArgb(0x26, 0x2C, 0x36); BtnHover2 = Color.FromArgb(0x21, 0x26, 0x2D);
+                Track = Color.FromArgb(0x30, 0x36, 0x3D); LineHi = Color.FromArgb(0x3D, 0x44, 0x4D); Line2 = Color.FromArgb(0x30, 0x36, 0x3D); Line3 = Color.FromArgb(0x30, 0x36, 0x3D);
+                Text = Color.FromArgb(0xE6, 0xED, 0xF3); Text2 = Color.FromArgb(0x8B, 0x94, 0x9E); Text3 = Color.FromArgb(0x6E, 0x76, 0x81); TextSoft = Color.FromArgb(0xC9, 0xD1, 0xD9);
+                // 绿：Jade 是强调色（成功/已连接），JadeHi→JadeMid 是主按钮渐变，白字压在 #238636 上
+                Jade = Color.FromArgb(0x3F, 0xB9, 0x50); JadeDim = Color.FromArgb(0x23, 0x86, 0x36); JadeHi = Color.FromArgb(0x2E, 0xA0, 0x43); JadeMid = Color.FromArgb(0x23, 0x86, 0x36);
+                JadeLight = Color.FromArgb(0x56, 0xD3, 0x64); Jade2 = Color.FromArgb(0x3F, 0xB9, 0x50); JadeDeep = Color.FromArgb(0x1A, 0x7F, 0x37);
+                JadeInk = Color.FromArgb(0xFF, 0xFF, 0xFF); JadeInk2 = Color.FromArgb(0xFF, 0xFF, 0xFF);
+                Gold = Color.FromArgb(0xD2, 0x99, 0x22); Warn = Color.FromArgb(0xD2, 0x99, 0x22); Danger = Color.FromArgb(0xF8, 0x51, 0x49); Blue = Color.FromArgb(0x58, 0xA6, 0xFF);
+            }
+            else
+            {
+                Bg = Color.FromArgb(0xFF, 0xFF, 0xFF); BgTop = Color.FromArgb(0xFF, 0xFF, 0xFF); Bg2 = Color.FromArgb(0xF6, 0xF8, 0xFA);
+                Surface = Color.FromArgb(0xFF, 0xFF, 0xFF); SurfaceHi = Color.FromArgb(0xF6, 0xF8, 0xFA);
+                Line = Color.FromArgb(0xD0, 0xD7, 0xDE); LineSoft = Color.FromArgb(0xD8, 0xDE, 0xE4);
+                RailTop = Color.FromArgb(0xF6, 0xF8, 0xFA); RailSel = Color.FromArgb(0xEA, 0xEE, 0xF2);
+                Panel2 = Color.FromArgb(0xF6, 0xF8, 0xFA); Panel3 = Color.FromArgb(0xFF, 0xFF, 0xFF); Panel4 = Color.FromArgb(0xF6, 0xF8, 0xFA);
+                Field = Color.FromArgb(0xFF, 0xFF, 0xFF); Console = Color.FromArgb(0xF6, 0xF8, 0xFA);
+                HoverSoft = Color.FromArgb(0xF3, 0xF4, 0xF6); HoverSoftHi = Color.FromArgb(0xEA, 0xEE, 0xF2); HoverSoft2 = Color.FromArgb(0xEA, 0xEE, 0xF2);
+                BtnHover = Color.FromArgb(0xF3, 0xF4, 0xF6); BtnHover2 = Color.FromArgb(0xEA, 0xEE, 0xF2);
+                Track = Color.FromArgb(0xD0, 0xD7, 0xDE); LineHi = Color.FromArgb(0xAF, 0xB8, 0xC1); Line2 = Color.FromArgb(0xD8, 0xDE, 0xE4); Line3 = Color.FromArgb(0xD0, 0xD7, 0xDE);
+                Text = Color.FromArgb(0x1F, 0x23, 0x28); Text2 = Color.FromArgb(0x65, 0x6D, 0x76); Text3 = Color.FromArgb(0x8C, 0x95, 0x9F); TextSoft = Color.FromArgb(0x42, 0x4A, 0x53);
+                Jade = Color.FromArgb(0x1A, 0x7F, 0x37); JadeDim = Color.FromArgb(0x4A, 0xC2, 0x6B); JadeHi = Color.FromArgb(0x2D, 0xA4, 0x4E); JadeMid = Color.FromArgb(0x1F, 0x88, 0x3D);
+                JadeLight = Color.FromArgb(0x1A, 0x7F, 0x37); Jade2 = Color.FromArgb(0x2D, 0xA4, 0x4E); JadeDeep = Color.FromArgb(0x0F, 0x53, 0x23);
+                JadeInk = Color.FromArgb(0xFF, 0xFF, 0xFF); JadeInk2 = Color.FromArgb(0xFF, 0xFF, 0xFF);
+                Gold = Color.FromArgb(0x9A, 0x67, 0x00); Warn = Color.FromArgb(0x9A, 0x67, 0x00); Danger = Color.FromArgb(0xCF, 0x22, 0x2E); Blue = Color.FromArgb(0x09, 0x69, 0xDA);
             }
         }
 

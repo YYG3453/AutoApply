@@ -32,6 +32,17 @@ if (Test-Path (Join-Path $root "config.json")) {
 }
 if (Test-Path (Join-Path $root "docs")) { Copy-Item (Join-Path $root "docs") $dist -Recurse }
 
+# Helper scripts the README tells users to run (repair integrity label, allow the phone page).
+Write-Host "== copy tools"
+$toolsDir = Join-Path $root "tools"
+if (Test-Path $toolsDir) {
+    $td = Join-Path $dist "tools"
+    New-Item -ItemType Directory $td | Out-Null
+    $helpers = Get-ChildItem $toolsDir -File | Where-Object { $_.Extension -eq ".cmd" -or $_.Name -eq "fix-integrity-label.ps1" }
+    foreach ($h in $helpers) { Copy-Item $h.FullName $td }
+    Write-Host ("  helpers in package: " + $helpers.Count)
+}
+
 Write-Host "== copy node runtime"
 $nodeSrc = "D:\APP\javasoft\Node\node.exe"
 if (-not (Test-Path $nodeSrc)) { $nodeSrc = (Get-Command node.exe).Source }
@@ -59,13 +70,24 @@ foreach ($f in $files) {
 }
 Write-Host ("  scripts in package: " + $files.Count)
 
+Write-Host "== hashes"
+# 包内一份：核对解压出来的 AutoApply.exe 有没有被换过（发布页正文会告诉用户怎么用）
+$exeHash = (Get-FileHash (Join-Path $dist "AutoApply.exe") -Algorithm SHA256).Hash.ToLower()
+"$exeHash  AutoApply.exe" | Set-Content -Path (Join-Path $dist "SHA256SUMS.txt") -Encoding ASCII
+Write-Host ("  AutoApply.exe  " + $exeHash)
+
 Write-Host "== zip"
 $zip = Join-Path $root ("dist\" + $name + ".zip")
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory($dist, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $true)
 
+# 发布目录一份：核对下载到的 zip 本身（publish_release.py 会上传它并把哈希贴进发布页）
+$zipHash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+("$zipHash  " + $name + ".zip") | Set-Content -Path (Join-Path $root "dist\SHA256SUMS.txt") -Encoding ASCII
+
 $exeSize = [math]::Round((Get-Item (Join-Path $dist "AutoApply.exe")).Length / 1KB, 1)
 $zipMb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
 Write-Host ("OK  " + $name + ".zip  " + $zipMb + " MB  (exe " + $exeSize + " KB)")
+Write-Host ("sha256  " + $name + ".zip  " + $zipHash)
 Write-Host ("path: " + $zip)

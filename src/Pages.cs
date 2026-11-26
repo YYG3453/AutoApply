@@ -123,7 +123,7 @@ namespace AutoApply
             T.Draw(g, "四平台自动投递 · 城市 " + App.Cfg.Cities.Count + " 个 · 关键词 " + App.Cfg.Keywords.Count + " 组 · 数据 " + ShortPath(Paths.DataDirText),
                    Fonts.Small, T.Text2, 32, 55);
 
-            var pr = new RectangleF(W - 148 - 18 - 126, 24, 126, 30);
+            var pr = new RectangleF(W - 148 - 18 - 126, 46, 126, 30);
             T.FillRound(g, pr, 15f, T.Panel3);
             T.StrokeRound(g, pr, 15f, running ? T.Alpha(T.Jade, 90) : T.Line);
             T.Dot(g, pr.X + 18, pr.Y + 15, 4.5f, running ? T.Jade : T.Text3);
@@ -808,7 +808,7 @@ namespace AutoApply
             var cfg = App.Cfg;
 
             T.Draw(g, "平台与关键词", Fonts.H1, T.Text, 32, 20);
-            T.Draw(g, "关键词会轮流搜；城市决定筛选范围", Fonts.Small, T.Text2, 32, 55);
+            T.Draw(g, "关键词会轮流搜；这里勾的城市 = 去这些城市找工作（投递范围在「匹配规则」里再筛）", Fonts.Small, T.Text2, 32, 55);
 
             // 投递进行中把两个输入框锁成只读，避免改到一半
             bool edit = App.CanEdit;
@@ -824,8 +824,8 @@ namespace AutoApply
 
             var c2 = new RectangleF(32, 224, W - 64, 168);
             T.Card(g, c2, 16f);
-            T.Draw(g, "目标城市", Fonts.H2, T.Text, c2.X + 20, c2.Y + 16);
-            T.Draw(g, "已选 " + cfg.Cities.Count + " 个", Fonts.Tiny, T.Text3, c2.X + 92, c2.Y + 20);
+            T.Draw(g, "目标城市（搜索范围）", Fonts.H2, T.Text, c2.X + 20, c2.Y + 16);
+            T.Draw(g, "已选 " + cfg.Cities.Count + " 个 · 去这些城市找工作；匹配规则里可再缩小到只投其中几个", Fonts.Tiny, T.Text3, c2.X + 180, c2.Y + 20);
             DrawSmallGhost(g, new RectangleF(c2.Right - 178, c2.Y + 12, 74, 26), "全选", "all");
             DrawSmallGhost(g, new RectangleF(c2.Right - 96, c2.Y + 12, 74, 26), "清空", "none");
 
@@ -857,7 +857,7 @@ namespace AutoApply
             DrawSmallGhost(g, new RectangleF(c3.Right - 168, c3.Y + 46, 66, 30), "自动查找", "find");
             DrawSmallGhost(g, new RectangleF(c3.Right - 94, c3.Y + 46, 74, 30), "打开浏览器", "open");
 
-            T.Draw(g, "登录状态保存在程序目录的 browser-profile 文件夹里；换电脑后需要重新登录一次四个平台。",
+            T.Draw(g, "登录状态保存在数据目录的 browser-profile（只有当前账户可读）；换电脑后需重新登录一次。",
                 Fonts.Tiny, T.Text3, 34, c3.Bottom + 14);
         }
 
@@ -965,9 +965,9 @@ namespace AutoApply
             ClearHits();
             T.Draw(g, "运行日志", Fonts.H1, T.Text, 32, 20);
             T.Draw(g, "实时输出 · 鼠标滚轮 / 拖动右侧滚动条翻看历史", Fonts.Small, T.Text2, 32, 55);
-            DrawSmallGhost(g, new RectangleF(W - 428, 26, 74, 30), "清空", "clear");
-            DrawSmallGhost(g, new RectangleF(W - 346, 26, 84, 30), "复制全部", "copy");
-            DrawSmallGhost(g, new RectangleF(W - 254, 26, 94, 30), "打开报告", "report");
+            DrawSmallGhost(g, new RectangleF(W - 428, 46, 74, 30), "清空", "clear");
+            DrawSmallGhost(g, new RectangleF(W - 346, 46, 84, 30), "复制全部", "copy");
+            DrawSmallGhost(g, new RectangleF(W - 254, 46, 94, 30), "打开报告", "report");
         }
 
         protected override void OnHit(string id)
@@ -1005,21 +1005,22 @@ namespace AutoApply
                 "点「开始投递」或开着定时，程序会接管浏览器逐站投简历，并把每一条记录写进本地记录文件。",
                 "",
                 "· 单文件 exe，自带 node 运行时，解压即用，不用装任何环境",
-                "· 登录态保存在 browser-profile 目录，换机器重新登录一次即可",
+                "· 登录态在数据目录的 browser-profile（仅当前账户可读），换机器重新登录一次即可",
                 "· 报告在 " + Paths.DataDirText + "\\report.md，可用「运行日志 → 打开报告」直接看",
             };
             float y = card.Y + 132;
             foreach (var l in lines) { T.Draw(g, l, Fonts.Body, l.StartsWith("·") ? T.Text2 : T.Text2, card.X + 36, y); y += 30; }
 
-            var c2 = new RectangleF(32, 408, W - 64, 120);
+            var c2 = new RectangleF(32, 408, W - 64, 138);
             T.Card(g, c2, 16f);
             T.Draw(g, "快捷键与提示", Fonts.H2, T.Text, c2.X + 20, c2.Y + 14);
             T.Draw(g, "F5 立即开始一轮    Esc 停止    最小化后可继续在托盘运行", Fonts.Small, T.Text2, c2.X + 20, c2.Y + 46);
             T.Draw(g, "若某个平台提示需要验证（滑块 / 扫码），点「打开浏览器」手动处理一次即可。", Fonts.Small, T.Text2, c2.X + 20, c2.Y + 74);
+            T.Draw(g, "外观：点右上角的月亮 / 太阳，在弹出的列表里选皮肤（石墨灰、墨蓝夜、暖夜、深海蓝、深蓝、GitHub）。", Fonts.Tiny, T.Text3, c2.X + 20, c2.Y + 104);
 
             DrawSmallGhost(g, new RectangleF(c2.Right - 150, c2.Y + 60, 132, 32), "打开程序目录", "dir");
 
-            var c3 = new RectangleF(32, 540, W - 64, 128);
+            var c3 = new RectangleF(32, 558, W - 64, 128);
             T.Card(g, c3, 16f);
             T.Draw(g, "版本与更新", Fonts.H2, T.Text, c3.X + 20, c3.Y + 14);
             string ver = "当前版本 v" + MainForm.Version;
@@ -1028,7 +1029,7 @@ namespace AutoApply
             else if (Updater.Checked) ver += "    ·    检查失败（网络或仓库未发布 Release）";
             else ver += "    ·    尚未检查";
             T.Draw(g, ver, Fonts.Small, Updater.Latest.Length > 0 && Updater.IsNewer(Updater.Latest, MainForm.Version) ? T.Warn : T.Text2, c3.X + 20, c3.Y + 46);
-            T.Draw(g, "更新方式：下载新的 zip 解压覆盖 exe；browser-profile 与 scripts 里的记录不会被覆盖。", Fonts.Tiny, T.Text3, c3.X + 20, c3.Y + 76);
+            T.Draw(g, "更新方式：下载新的 zip 解压覆盖 exe；数据目录里的登录态与 scripts 记录不会被覆盖。", Fonts.Tiny, T.Text3, c3.X + 20, c3.Y + 76);
             DrawSmallGhost(g, new RectangleF(c3.Right - 150, c3.Y + 62, 132, 32), "检查更新", "chk");
             if (Updater.Latest.Length > 0 && Updater.IsNewer(Updater.Latest, MainForm.Version))
                 DrawSmallGhost(g, new RectangleF(c3.Right - 300, c3.Y + 62, 132, 32), "打开下载页", "dl");

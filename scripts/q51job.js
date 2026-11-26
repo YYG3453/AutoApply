@@ -127,6 +127,7 @@ const SCAN = `(() => {
       area,
       salary: m.jobSalary || '',
       btn: b ? b.textContent.trim() : '',
+      info: txt.slice(0, 240),
     });
   });
   const body = document.body.innerText.replace(/\\s+/g, ' ');
@@ -286,7 +287,7 @@ async function main() {
         if (!city) { skipped++; continue; }
         const key = (j.id || (j.title + '|' + j.area)).slice(0, 60);
         if (seen.has(key)) { skipped++; continue; }
-          const sc = SCORE.evaluate({ title: j.title, company: '', kw });
+          const sc = SCORE.evaluate({ title: j.title, company: '', kw, info: j.info, salary: j.salary, city });
           if (!sc.pass) {
             if (!skipSeen.has(key)) { skipSeen.add(key); filtered++; skipRecord({ site: 'q51', key, title: j.title, company: j.company || '', area: j.area, kw, score: sc.score, reason: sc.reason, ts: new Date().toISOString() }); }
             skipped++; log('FILTER ' + sc.score + ' ' + sc.reason + ' | ' + j.title + ' ' + j.area); continue;

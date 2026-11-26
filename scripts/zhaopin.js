@@ -115,6 +115,7 @@ const SCAN = `(() => {
       loc: ((c.querySelector('.job-card__location') || {}).textContent || '').replace(/\\s+/g, ' ').trim(),
       tags: tags.slice(0, 5),
       applied: /已投递|继续沟通/.test(c.innerText),
+      info: (c.innerText || '').replace(/\\s+/g, ' ').slice(0, 240),
     });
   });
   const body = document.body.innerText.replace(/\\s+/g, ' ');
@@ -157,7 +158,7 @@ async function applyOne(c, idx, job) {
   })()`);
   // 正文闸门：招聘要求/岗位描述里出现"电话销售/外呼/招生"这类，标题再像也不投
   if (panel && panel.text && panel.text.length > 40) {
-    const sc = SCORE.evaluate({ title: (job && job.title) || panel.title, company: job && job.company, kw: job && job.kw, jd: panel.text });
+    const sc = SCORE.evaluate({ title: (job && job.title) || panel.title, company: job && job.company, kw: job && job.kw, jd: panel.text, info: job && job.info, salary: job && job.salary, city: job && job.city });
     if (!sc.pass) return { ok: false, why: 'jd', score: sc.score, reason: sc.reason, panel: panel.title };
   }
   const st = await ev(c, `(() => {
@@ -231,9 +232,10 @@ async function main() {
         if (sent >= maxJobs) { stop = 'max'; break; }
         const city = cityOf(j.loc);
         if (!city) { skipped++; continue; }
+        j.city = city;
         const key = (j.company + '|' + j.salary + '|' + j.loc).slice(0, 140);
         if (seen.has(key)) { skipped++; continue; }
-        const sc = SCORE.evaluate({ title: j.title, company: j.company, kw });
+        const sc = SCORE.evaluate({ title: j.title, company: j.company, kw, info: j.info, salary: j.salary, city });
         if (!sc.pass) {
           if (!skipSeen.has(key)) { skipSeen.add(key); filtered++; skipRecord({ site: 'zp', key, title: j.title, company: j.company, salary: j.salary, loc: j.loc, city, kw, score: sc.score, reason: sc.reason, ts: new Date().toISOString() }); }
           skipped++; log('FILTER ' + sc.score + ' ' + sc.reason + ' | ' + j.company + ' ' + j.loc + ' ' + (j.title || '')); continue;

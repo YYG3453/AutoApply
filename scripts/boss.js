@@ -126,6 +126,7 @@ const SCAN = `(() => {
       company: (c.querySelector('.boss-name') || {}).textContent || '',
       loc: (c.querySelector('.company-location') || {}).textContent || '',
       tags,
+      info: (c.innerText || '').replace(/\\s+/g, ' ').slice(0, 240),
     });
   });
   return { jobs: out, toast: (document.body.innerText.match(/[^\\n]*(?:安全验证|请完成验证|验证码|次数已用完|沟通次数|操作过于频繁|操作频繁|已达上限)[^\\n]*/) || [''])[0] };
@@ -184,7 +185,7 @@ async function greetOne(c, idx, job) {
   // 正文闸门：卡片上只有标题，真正的活儿写在详情正文里。点了卡片再看正文，比事后"投了才发现不对"便宜。
   const jd = await ev(c, `(() => { const b=document.querySelector('.job-detail-box'); return b ? (b.innerText||'').replace(/\\s+/g,' ').slice(0,900) : ''; })()`);
   if (jd && jd.length > 40) {
-    const sc = SCORE.evaluate({ title: job && job.title, company: job && job.company, kw: job && job.kw, jd });
+    const sc = SCORE.evaluate({ title: job && job.title, company: job && job.company, kw: job && job.kw, jd, info: job && job.info, salary: job && job.salary, city: job && job.city });
     if (!sc.pass) return { ok: false, why: 'jd', score: sc.score, reason: sc.reason, jd };
   }
   const st = await ev(c, `(() => {
@@ -261,7 +262,7 @@ async function main() {
           const j = jobs[i];
           if (!j.id) continue;
           if (seen.has(j.id)) { skipped++; continue; }
-          const sc = SCORE.evaluate({ title: j.title, company: j.company, kw });
+          const sc = SCORE.evaluate({ title: j.title, company: j.company, kw, info: j.info, salary: j.salary, city: city.name });
           if (!sc.pass) {
             if (!skipSeen.has(j.id)) { skipSeen.add(j.id); filtered++; skipRecord({ site: 'boss', id: j.id, title: j.title, company: j.company, salary: j.salary, loc: j.loc, city: city.name, kw, score: sc.score, reason: sc.reason, ts: new Date().toISOString() }); }
             skipped++; log('FILTER ' + sc.score + ' ' + sc.reason + ' | ' + j.title + ' @ ' + j.company + ' ' + city.name); continue;
@@ -269,6 +270,7 @@ async function main() {
           if (dry) { log('DRY would greet', j.title, j.company); seen.add(j.id); continue; }
           let r;
           j.kw = kw;
+          j.city = city.name;
           try { r = await greetOne(c, i, j); } catch (e) { log('greet err', j.title, e.message); errs++; continue; }
           if (r.why === 'jd') {
             filtered++; seen.add(j.id); skipped++;

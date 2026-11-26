@@ -14,7 +14,7 @@ namespace AutoApply
 {
     internal class MainForm : Form
     {
-        public const string Version = "1.9.0";
+        public const string Version = "1.10.0";
 
         /// <summary>--tray：启动后只呆在托盘里，不弹窗口（给计划任务用）。</summary>
         public bool StartInTray;
@@ -54,11 +54,16 @@ namespace AutoApply
         private readonly Timer _sched = new Timer { Interval = 15000 };
         private readonly HashSet<string> _ranWindows = new HashSet<string>();
         private string _toast = "";
+        /// <summary>启动时一次性产生、要等窗口显示后再 Toast 的提示（登录态搬移结果）。</summary>
+        private string _startupNote = "";
         private readonly Timer _toastTimer = new Timer { Interval = 2600 };
         private readonly Timer _pulse = new Timer { Interval = 400 };
         private float _pulseT;
         private NotifyIcon _tray;
         private bool _ready;
+
+        /// <summary>手机看板（局域网 HTTP）。Start 失败时 Err 里是原因，健康页上照样显示。</summary>
+        public PhoneWeb Web;
 
 
         // v1.8.6：窗口圆角交给 DWM（Win11 22000+ 原生圆角，和爱奇艺/资源管理器同一套），
@@ -99,10 +104,31 @@ namespace AutoApply
             BaseDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
             Paths.Init(BaseDir);
             Cfg = AppCfg.Load(Paths.CfgPath.Length > 0 ? Paths.CfgPath : Paths.CfgPath);
+            // 登录态目录：v1.10 起放 %LOCALAPPDATA%\AutoApply\browser-profile（只有当前账户可读）。
+            // 必须在 new Engine 之前做：Engine.ProfilePath 取的就是这里定下的位置。
+            try
+            {
+                string profileNote;
+                ProfileHome.Ensure(BaseDir, Cfg, out profileNote);
+                if (!string.IsNullOrEmpty(profileNote)) { _startupNote = profileNote; Program.Trace("profile: " + profileNote); }
+            }
+            catch (Exception ex) { Program.Trace("profile home failed: " + ex.Message); }
             Engine = new Engine(BaseDir) { Cfg = Cfg };
             try { Program.Trace("浏览器开机自启：" + Engine.EnsureBrowserAutoStart()); }
             catch { }
             Records = RecordStore.Load(Engine.ScriptDir);
+
+            // 手机看板：同一个 Wi-Fi 下用手机浏览器看状态、点按钮。
+            // 起不来（端口被占 / 配置关掉）不影响主程序，原因留在 Web.Err 里给健康页显示。
+            try
+            {
+                Web = new PhoneWeb(this, Engine, Cfg);
+                string webMsg;
+                if (Web.Start(out webMsg)) Program.Trace("phone web: " + Web.Url + "  pin=" + Web.Pin);
+                else Program.Trace("phone web: 没起来 —— " + webMsg);
+            }
+            catch (Exception ex) { Program.Trace("phone web failed: " + ex.Message); }
+            // 重启时把"今天已经跑过的时段"标上：否则 10:00 重启会让上午场从 09:30 再投一遍，
             // 重启时把"今天已经跑过的时段"标上：否则 10:00 重启会让上午场从 09:30 再投一遍，
             // 平台额度白烧一轮，还可能在两轮之间把同一批岗位点第二遍。
             try
@@ -133,7 +159,7 @@ namespace AutoApply
                 if (rawArgs[i] == "--nightstyle")
                 {
                     int ns;
-                    if (int.TryParse(rawArgs[i + 1], out ns)) T.NightStyle = ns < 0 ? 0 : (ns > 4 ? 4 : ns);
+                    if (int.TryParse(rawArgs[i + 1], out ns)) T.NightStyle = ns < 0 ? 0 : (ns > 5 ? 5 : ns);
                 }
             }
             T.SetNight(theme != "day");
@@ -151,6 +177,8 @@ namespace AutoApply
                     BeginInvoke(new Action(delegate { try { StartRunManual(); } catch (Exception ex) { Program.Trace("run-now delegate throw: " + ex.Message); } }));
                 // DWM 的圆角/边框属性在窗口真正合成之后再设一次才稳（HandleCreated 时还太早）
                 BeginInvoke(new Action(delegate { ApplyCorners(); }));
+                if (!string.IsNullOrEmpty(_startupNote))
+                    BeginInvoke(new Action(delegate { if (Visible) Toast(_startupNote); }));
                 if (!StartInTray) return;
                 WindowState = FormWindowState.Minimized;
                 Hide();
@@ -259,7 +287,7 @@ namespace AutoApply
                 if (SuppressWizard || StartInTray || Cfg.WizardDone) return;
                 try
                 {
-                    using (var wf = new WizardForm(Cfg, Engine.ScriptDir)) wf.ShowDialog(this);
+                    using (var wf = new WizardForm(Cfg, Engine.ScriptDir, Engine.BinDir)) wf.ShowDialog(this);
                     Cfg = AppCfg.Load(Paths.CfgPath);
                     _dash.Invalidate();
                 }
@@ -374,6 +402,7 @@ namespace AutoApply
                           (st.FrameCount > 0 ? st.GetFrame(0).GetMethod().DeclaringType.Name + "." + st.GetFrame(0).GetMethod().Name : "?"));
             T.SetNight(mode != "day");
             BackColor = T.Bg;
+            ApplyCorners();   // 窗口边框色跟着底色走，不然换皮肤后 Win11 会留一条旧色的边
             ApplyThemeTo(this);
             Invalidate(true);
             if (_tray != null) _tray.Icon = MakeIcon();
@@ -390,6 +419,34 @@ namespace AutoApply
             ApplyTheme(T.Night ? "day" : "night", true);
             Toast(T.Night ? "已切换到夜晚模式" : "已切换到日间模式");
         }
+
+        /// <summary>
+        /// 换皮肤（点右上角月亮/太阳弹出的那张菜单）。深色皮肤只在夜晚模式成立，
+        /// 所以白天选了别的皮肤会顺手切到夜晚，免得"选了没反应"。
+        /// </summary>
+        public void ApplySkin(int style)
+        {
+            if (style < 0) style = 0;
+            if (style > T.StyleNames.Length - 1) style = T.StyleNames.Length - 1;
+            bool wantNight = T.Night || style != 5;
+            T.NightStyle = style;
+            ApplyTheme(wantNight ? "night" : "day", true);
+            Toast("外观：" + T.StyleName(style) + (style == 5 ? (T.Night ? "（深色）" : "（浅色）") : ""));
+        }
+
+        /// <summary>点主题按钮弹出皮肤面板。自己画的浮层，跟着当前皮肤换色，还带每套的配色缩略图。</summary>
+        public void ShowSkinMenu()
+        {
+            if (_skinPicker != null && !_skinPicker.IsDisposed)
+            {
+                if (_skinPicker.Visible) { _skinPicker.Close(); return; }
+                _skinPicker.Dispose();   // 关掉的浮层别攒着，每次打开一个新实例
+            }
+            _skinPicker = new SkinPicker(this);
+            _skinPicker.ShowAt(_winBtns.ThemeScreenRect, RectangleToScreen(ClientRectangle));
+        }
+
+        private SkinPicker _skinPicker;
 
         private static void ApplyThemeTo(Control c)
         {
@@ -715,31 +772,69 @@ namespace AutoApply
                 return;
             }
             _tray.Visible = false;
+            try { if (Web != null) Web.Stop(); } catch { }
             base.OnFormClosing(e);
         }
 
         // ---------- 右上角窗口按钮 ----------
         private class WinButtons : Control
         {
-            public const int WidthLogical = 148;
-            private const float ZoneW = 48f;
+            // 主题入口做成一颗胶囊：月亮/太阳 + 当前皮肤名 + 下拉箭头。
+            // 原来只是一个 48px 图标格里 12px 的月亮，再贴一个小三角，既小又说不清点它会发生什么。
+            public const int WidthLogical = 200;
+            private const float ChipX = 8f, ChipY = 8f, ChipW = 100f, ChipH = 28f;
+            private const float ThemeZone = 112f;      // 点这一整条都能弹出面板，比只认胶囊本身好点
+            private const float BtnW = 44f;
+
+            /// <summary>胶囊在屏幕上的位置：皮肤面板贴着它往下弹。</summary>
+            public Rectangle ThemeScreenRect
+            {
+                get { return RectangleToScreen(new Rectangle(T.RS(ChipX), T.RS(ChipY), T.RS(ChipW), T.RS(ChipH))); }
+            }
 
             private readonly MainForm _f;
+            private readonly ToolTip _tip = new ToolTip();
             private string _hover = "";
             public WinButtons(MainForm f)
             {
                 _f = f;
                 SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
                 BackColor = Color.Transparent;
+                _tip.SetToolTip(this, "点一下换皮肤 · 共 " + T.StyleNames.Length + " 套");
+                ApplyRegion();
             }
 
-            private RectangleF ThemeR { get { return new RectangleF(0, 0, ZoneW, Height / T.S); } }
-            private RectangleF MinR { get { return new RectangleF(ZoneW, 0, ZoneW, Height / T.S); } }
-            private RectangleF CloseR { get { return new RectangleF(ZoneW * 2, 0, Width / T.S - ZoneW * 2, Height / T.S); } }
+            // 这个控件只在这三块形状上存在。要是不裁，它铺满 200×44，
+            // 透明背景只会重画父窗体、不会合成本页的兄弟控件 ——
+            // 页面右上角的按钮会被抹掉一截，点上去也被它吃掉。
+            private void ApplyRegion()
+            {
+                if (Width <= 0 || Height <= 0) return;
+                using (var p = new GraphicsPath())
+                {
+                    float pad = T.RS(8f), pillH = T.RS(28f), pillW = T.RS(BtnW - 16f);
+                    p.AddPath(T.Round(new RectangleF(T.RS(ChipX), T.RS(ChipY), T.RS(ChipW), T.RS(ChipH)), T.RS(ChipH) / 2f), false);
+                    p.AddPath(T.Round(new RectangleF(T.RS(ThemeZone) + pad, pad, pillW, pillH), T.RS(8f)), false);
+                    p.AddPath(T.Round(new RectangleF(T.RS(ThemeZone + BtnW) + pad, pad, pillW, pillH), T.RS(8f)), false);
+                    var old = Region;
+                    Region = new Region(p);
+                    if (old != null) old.Dispose();
+                }
+            }
+
+            protected override void OnResize(EventArgs e)
+            {
+                base.OnResize(e);
+                ApplyRegion();
+            }
+
+            private RectangleF ChipR { get { return new RectangleF(ChipX, ChipY, ChipW, ChipH); } }
+            private RectangleF MinR { get { return new RectangleF(ThemeZone, 0, BtnW, Height / T.S); } }
+            private RectangleF CloseR { get { return new RectangleF(ThemeZone + BtnW, 0, Width / T.S - ThemeZone - BtnW, Height / T.S); } }
 
             private void Pill(Graphics g, RectangleF r, Color c)
             {
-                T.FillRound(g, new RectangleF(r.X + 6, r.Y + 6, r.Width - 12, r.Height - 12), 8f, c);
+                T.FillRound(g, new RectangleF(r.X + 8, r.Y + 8, r.Width - 16, r.Height - 16), 8f, c);
             }
 
             protected override void OnPaint(PaintEventArgs e)
@@ -748,55 +843,103 @@ namespace AutoApply
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 g.ScaleTransform(T.S, T.S);
 
-                if (_hover == "theme") Pill(g, ThemeR, T.BtnHover);
                 if (_hover == "min") Pill(g, MinR, T.BtnHover);
                 if (_hover == "close") Pill(g, CloseR, T.Alpha(T.Danger, 60));
+                DrawChip(g, ChipR, _hover == "theme");
 
-                // 主题：夜 = 月亮，日 = 太阳
-                float tx = ThemeR.X + ThemeR.Width / 2, ty = ThemeR.Y + ThemeR.Height / 2 + 1;
-                var tcol = _hover == "theme" ? T.Text : T.Text3;
+                using (var p = new Pen(_hover == "min" ? T.Text : T.Text3, 1.2f))
+                {
+                    p.StartCap = LineCap.Round; p.EndCap = LineCap.Round;
+                    g.DrawLine(p, MinR.X + MinR.Width / 2 - 5.5f, MinR.Y + MinR.Height / 2 + 3,
+                                  MinR.X + MinR.Width / 2 + 5.5f, MinR.Y + MinR.Height / 2 + 3);
+                }
+                using (var p = new Pen(_hover == "close" ? T.Danger : T.Text3, 1.2f))
+                {
+                    p.StartCap = LineCap.Round; p.EndCap = LineCap.Round;
+                    float cx = CloseR.X + CloseR.Width / 2, cy = CloseR.Y + CloseR.Height / 2 + 2;
+                    g.DrawLine(p, cx - 4.6f, cy - 4.6f, cx + 4.6f, cy + 4.6f);
+                    g.DrawLine(p, cx + 4.6f, cy - 4.6f, cx - 4.6f, cy + 4.6f);
+                }
+            }
+
+            /// <summary>胶囊本体：细边、悬停时提亮；里面是日月图标、当前皮肤名、下拉箭头。</summary>
+            private void DrawChip(Graphics g, RectangleF r, bool hov)
+            {
+                float rad = r.Height / 2f;
+                if (hov) T.FillRound(g, r, rad, T.Alpha(T.Text, 22));
+                T.StrokeRound(g, r, rad, hov ? T.Alpha(T.Text, 90) : T.Alpha(T.Text, 34), 1f);
+
+                float cy = r.Y + r.Height / 2f;
+                float ix = r.X + 16f;
+                SunMoon(g, ix, cy, hov ? T.Jade : T.Text2);
+
+                // 白天只有 GitHub 有专属浅色皮肤，其余都走宣纸日景，所以直接写"日间"。
+                string label = T.Night ? T.StyleNames[T.NightStyle] : (T.NightStyle == 5 ? "GitHub" : "日间");
+                float tx = ix + 9f;
+                float maxW = r.Right - 25f - tx;
+                using (var f = T.F(11.5f))
+                {
+                    var sz = g.MeasureString(label, f);
+                    if (sz.Width > maxW)
+                    {
+                        string cut = label;
+                        while (cut.Length > 1 && g.MeasureString(cut + "…", f).Width > maxW)
+                            cut = cut.Substring(0, cut.Length - 1);
+                        label = cut + "…";
+                        sz = g.MeasureString(label, f);
+                    }
+                    T.Draw(g, label, f, hov ? T.Text : T.TextSoft, tx, cy - sz.Height / 2f + 1f);
+                }
+
+                float ax = r.Right - 15f;
+                using (var p = new Pen(hov ? T.Text2 : T.Text3, 1.4f))
+                {
+                    p.StartCap = LineCap.Round; p.EndCap = LineCap.Round;
+                    g.DrawLines(p, new[]
+                    {
+                        new PointF(ax - 3.4f, cy - 2.1f),
+                        new PointF(ax, cy + 1.5f),
+                        new PointF(ax + 3.4f, cy - 2.1f)
+                    });
+                }
+            }
+
+            /// <summary>夜 = 月亮，日 = 太阳（和皮肤面板里那个是同一套画法）。</summary>
+            private static void SunMoon(Graphics g, float cx, float cy, Color c)
+            {
                 if (T.Night)
                 {
                     using (var path = new GraphicsPath())
                     using (var reg = new System.Drawing.Region())
                     {
-                        path.AddEllipse(tx - 6f, ty - 6f, 12f, 12f);
+                        path.AddEllipse(cx - 5.4f, cy - 5.4f, 10.8f, 10.8f);
                         reg.MakeEmpty();
                         reg.Union(path);
                         using (var cut = new GraphicsPath())
                         {
-                            cut.AddEllipse(tx - 1.2f, ty - 8.2f, 12f, 12f);
+                            cut.AddEllipse(cx - 1.1f, cy - 7.4f, 10.8f, 10.8f);
                             reg.Exclude(cut);
                         }
-                        using (var b = new SolidBrush(tcol)) g.FillRegion(b, reg);
+                        using (var b = new SolidBrush(c)) g.FillRegion(b, reg);
                     }
                 }
                 else
                 {
-                    using (var b = new SolidBrush(tcol)) g.FillEllipse(b, tx - 3.6f, ty - 3.6f, 7.2f, 7.2f);
-                    using (var p = new Pen(tcol, 1.2f))
+                    using (var b = new SolidBrush(c)) g.FillEllipse(b, cx - 3.2f, cy - 3.2f, 6.4f, 6.4f);
+                    using (var p = new Pen(c, 1.1f))
                         for (int i = 0; i < 8; i++)
                         {
                             double a = Math.PI * i / 4.0;
-                            float x1 = tx + (float)Math.Cos(a) * 6.2f, y1 = ty + (float)Math.Sin(a) * 6.2f;
-                            float x2 = tx + (float)Math.Cos(a) * 8.6f, y2 = ty + (float)Math.Sin(a) * 8.6f;
-                            g.DrawLine(p, x1, y1, x2, y2);
+                            g.DrawLine(p,
+                                cx + (float)Math.Cos(a) * 5.4f, cy + (float)Math.Sin(a) * 5.4f,
+                                cx + (float)Math.Cos(a) * 7.6f, cy + (float)Math.Sin(a) * 7.6f);
                         }
-                }
-
-                using (var p = new Pen(_hover == "min" ? T.Text : T.Text3, 1.2f))
-                    g.DrawLine(p, MinR.X + MinR.Width / 2 - 6, MinR.Y + MinR.Height / 2 + 3, MinR.X + MinR.Width / 2 + 6, MinR.Y + MinR.Height / 2 + 3);
-                using (var p = new Pen(_hover == "close" ? T.Danger : T.Text3, 1.2f))
-                {
-                    float cx = CloseR.X + CloseR.Width / 2, cy = CloseR.Y + CloseR.Height / 2 + 2;
-                    g.DrawLine(p, cx - 5, cy - 5, cx + 5, cy + 5);
-                    g.DrawLine(p, cx + 5, cy - 5, cx - 5, cy + 5);
                 }
             }
 
             private string Hit(PointF lp)
             {
-                if (ThemeR.Contains(lp)) return "theme";
+                if (lp.X < ThemeZone) return "theme";
                 if (MinR.Contains(lp)) return "min";
                 if (CloseR.Contains(lp)) return "close";
                 return "";
@@ -817,8 +960,16 @@ namespace AutoApply
                 base.OnMouseDown(e);
                 var lp = T.LP(e.Location);
                 string h = Hit(lp);
-                if (h == "theme") _f.ToggleTheme();
-                else if (h == "min") _f.WindowState = FormWindowState.Minimized;
+                // 主题格：左右键都直接列出 6 套皮肤（菜单里还有日夜切换）。
+                // 之前只把菜单挂在右键上，很多人点了左键只看到日夜翻转，以为没有皮肤。
+                if (h == "theme")
+                {
+                    _f.ShowSkinMenu();
+                    Invalidate();
+                    return;
+                }
+                if (e.Button == MouseButtons.Right) return;
+                if (h == "min") _f.WindowState = FormWindowState.Minimized;
                 else if (h == "close") _f.Close();
                 Invalidate();
             }

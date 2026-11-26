@@ -43,6 +43,43 @@ namespace AutoApply
         /// <summary>同一时间只允许一个实例；第二次双击时把已经在跑的那个叫到前面来。</summary>
         private static Mutex _singleInstance;
 
+
+        /// <summary>
+        /// 低完整性/不受信任时的提示。为什么不清静地退出：低权限进程只要浏览器已经在跑，
+        /// 照样能通过 CDP 操作它投递 —— 不是致命错误，但必须让用户知道"重开浏览器"这条路走不通。
+        /// 只提示一次（进程内），别每次启动都拦一道。
+        /// </summary>
+        private static void WarnIfLowIntegrity(string[] args)
+        {
+            string joined = string.Join(" ", args);
+            bool tooling = joined.IndexOf("--render", StringComparison.OrdinalIgnoreCase) >= 0
+                        || joined.IndexOf("--perf", StringComparison.OrdinalIgnoreCase) >= 0
+                        || joined.IndexOf("--test-hit", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool silent = joined.IndexOf("--tray", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (tooling) return;
+
+            string il = Engine.IntegrityLevel();
+            if (il == "medium" || il == "high") return;
+            Trace("low integrity (" + il + ")：本进程拉不起 Chrome，见 tools\\fix-integrity-label.cmd");
+            if (silent) return;   // 托盘/开机自启时不弹框，平台健康页里已有同样的说明
+
+            try
+            {
+                string dir = Path.GetDirectoryName(Application.ExecutablePath);
+                string text =
+                    "这次 AutoApply 是以「受限权限」运行的，程序自己启动浏览器会被 Windows 拒绝。\r\n\r\n" +
+                    "原因通常是：AutoApply.exe 所在的文件夹被系统或安全软件打上了「低完整性」标签，\r\n" +
+                    "从该文件夹启动的程序都会继承这个标签，双击多少次结果都一样。\r\n\r\n" +
+                    "修法：右键 AutoApply\\tools\\fix-integrity-label.cmd →「以管理员身份运行」，\r\n" +
+                    "等它跑完（几秒到一分钟），再打开 AutoApply。\r\n\r\n" +
+                    "临时办法：如果浏览器窗口已经在运行（9333 端口有响应），本程序仍能连上它投递，\r\n" +
+                    "可以先用「开始投递」。\r\n\r\n" +
+                    "当前程序目录：" + dir;
+                MessageBox.Show(text, "AutoApply · 权限受限", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            catch (Exception ex) { Trace("low integrity notice failed: " + ex.Message); }
+        }
+        /// <summary>同一时间只允许一个实例；第二次双击时把已经在跑的那个叫到前面来。</summary>
         private static bool AnotherInstanceRunning()
         {
             bool created;
@@ -156,7 +193,14 @@ namespace AutoApply
                 {
                     f.GotoPage(key);
                     Application.DoEvents();
-                    System.Threading.Thread.Sleep(1500);
+                    // 切页会启动 220ms 的淡入（Timer 驱动）。Sleep 期间不泵消息，计时器就不走，
+                    // 截出来永远是"半透明"的第一帧；所以这里边泵边等，让 Appear 走到 1。
+                    var settleUntil = Environment.TickCount + 1400;
+                    while (Environment.TickCount < settleUntil)
+                    {
+                        Application.DoEvents();
+                        System.Threading.Thread.Sleep(20);
+                    }
                     Application.DoEvents();
                     // 只截客户区：窗口现在保留 WS_THICKFRAME（为了 DWM 圆角），
                     // DrawToBitmap 会把系统标题栏一起画进来，所以走屏幕抓取。
@@ -175,6 +219,63 @@ namespace AutoApply
             try { f.Close(); } catch { }
             Application.Exit();
             Environment.Exit(0);
+        }
+
+        /// <summary>
+        /// 只给文档用：停在仪表盘，打开皮肤面板，日夜各截一张。
+        /// 面板是独立顶层窗口，DrawToBitmap 抓不到，所以还是 CopyFromScreen。
+        /// </summary>
+        private static void RenderSkins(MainForm f, string dir)
+        {
+            try
+            {
+                Directory.CreateDirectory(dir);
+                f.Show();
+                f.TopMost = true;
+                f.Activate();
+                Pump(700);
+                Cursor.Position = new Point(0, 0);   // 鼠标在右上角会触发按钮 ToolTip，截图里会多出一块白框
+                f.GotoPage("dash");
+                Pump(1200);
+                foreach (bool night in new[] { true, false })
+                {
+                    f.ApplyTheme(night ? "night" : "day", false);
+                    Pump(900);
+                    f.ShowSkinMenu();
+                    Pump(600);
+                    Capture(f, Path.Combine(dir, night ? "skin-night.png" : "skin-day.png"));
+                    f.ShowSkinMenu();    // 同一个入口再点一次 = 收起面板
+                    Pump(250);
+                }
+            }
+            catch (Exception ex) { Trace("skinshot crash: " + ex); }
+            try { f.Close(); } catch { }
+            Application.Exit();
+            Environment.Exit(0);
+        }
+
+        private static void Pump(int ms)
+        {
+            var until = Environment.TickCount + ms;
+            while (Environment.TickCount < until)
+            {
+                Application.DoEvents();
+                System.Threading.Thread.Sleep(20);
+            }
+            Application.DoEvents();
+        }
+
+        private static void Capture(MainForm f, string path)
+        {
+            var o = f.PointToScreen(Point.Empty);
+            var cs = f.ClientSize;
+            using (var bmp = new Bitmap(cs.Width, cs.Height))
+            using (var gg = Graphics.FromImage(bmp))
+            {
+                gg.CopyFromScreen(o.X, o.Y, 0, 0, new Size(cs.Width, cs.Height));
+                bmp.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+            }
+            Trace("captured " + path);
         }
 
         /// <summary>量每个页面"画一次"要多久：切页卡不卡的根子就在这里。</summary>
@@ -221,6 +322,10 @@ namespace AutoApply
         static void Main(string[] args)
         {
             Trace("--- start " + Application.ProductVersion);
+            // 低完整性进程拉不起 Chrome（crashpad 写不进配置目录，0x80000003 退出）。
+            // 最常见的成因是 exe 所在文件夹被打了「低完整性」标签（沙箱/安全软件会这么干），
+            // 从该文件夹启动的程序会继承标签一起被降权 —— 双击多少次都一样。
+            WarnIfLowIntegrity(args);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.ThreadException += (s, e) => { Trace("UI exception: " + e.Exception); try { MessageBox.Show(e.Exception.Message, "AutoApply"); } catch { } };
@@ -243,6 +348,7 @@ namespace AutoApply
                 var joinedBefore = string.Join(" ", args);
                 bool tooling = joinedBefore.IndexOf("--render", StringComparison.OrdinalIgnoreCase) >= 0
                             || joinedBefore.IndexOf("--perf", StringComparison.OrdinalIgnoreCase) >= 0
+                            || joinedBefore.IndexOf("--skinshot", StringComparison.OrdinalIgnoreCase) >= 0
                             || joinedBefore.IndexOf("--test-hit", StringComparison.OrdinalIgnoreCase) >= 0;
                 if (!tooling && AnotherInstanceRunning())
                 {
@@ -272,6 +378,13 @@ namespace AutoApply
                     var m = System.Text.RegularExpressions.Regex.Match(joined, "--render\\s+\"?([^\"\\s]+)\"?");
                     var outDir = m.Success ? m.Groups[1].Value : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "shots");
                     RenderAll(f, outDir);
+                    return;
+                }
+                if (joined.IndexOf("--skinshot", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    var ms = System.Text.RegularExpressions.Regex.Match(joined, "--skinshot\\s+\"?([^\"\\s]+)\"?");
+                    var outDir = ms.Success ? ms.Groups[1].Value : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "shots");
+                    RenderSkins(f, outDir);
                     return;
                 }
                 if (joined.IndexOf("--perf", StringComparison.OrdinalIgnoreCase) >= 0)

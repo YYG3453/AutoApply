@@ -248,7 +248,7 @@ namespace AutoApply
 
             T.Draw(g, "招呼语版本", Fonts.H1, T.Text, 32, 22);
             T.Draw(g, "平台里那一句程序改不了；这页存你自己写的版本，记下切换到哪一版的时刻，算出每版的回复率", Fonts.Small, T.Text3, 32, 60);
-            Btn(g, new RectangleF(W - 32 - 104, 24, 104, 30), "新建一版", "new", true);
+            Btn(g, new RectangleF(W - 32 - 104, 46, 104, 30), "新建一版", "new", true);
 
             // ---- 摘要卡 ----
             var head = new RectangleF(32, 94, W - 64, 76);

@@ -72,6 +72,7 @@ namespace AutoApply
             if (Interlocked.CompareExchange(ref _probing, 1, 0) != 0) return;
             Health.Port = App.Cfg.Port;
             Health.ScriptDir = App.Engine.ScriptDir;
+            Health.BinDir = App.Engine.BinDir;
             ThreadPool.QueueUserWorkItem(delegate
             {
                 bool alive = false, was = false;
@@ -142,6 +143,7 @@ namespace AutoApply
             }
             Health.Port = App.Cfg.Port;
             Health.ScriptDir = App.Engine.ScriptDir;
+            Health.BinDir = App.Engine.BinDir;
             var sites = App.Cfg.Sites;
             _summary = openBrowser ? "正在打开浏览器 …" : "正在检查 …";
             Ui(delegate { Invalidate(); });
@@ -206,6 +208,7 @@ namespace AutoApply
             if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return;
             Health.Port = App.Cfg.Port;
             Health.ScriptDir = App.Engine.ScriptDir;
+            Health.BinDir = App.Engine.BinDir;
             _summary = "正在检查 " + s.Name + " …";
             Ui(delegate { Invalidate(); });
             ThreadPool.QueueUserWorkItem(delegate
@@ -230,6 +233,7 @@ namespace AutoApply
             if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return;
             Health.Port = App.Cfg.Port;
             Health.ScriptDir = App.Engine.ScriptDir;
+            Health.BinDir = App.Engine.BinDir;
             _summary = "正在全部重开，随后自动投递 …";
             Ui(delegate { Invalidate(); });
             ThreadPool.QueueUserWorkItem(delegate
@@ -256,6 +260,7 @@ namespace AutoApply
             if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0) return;
             Health.Port = App.Cfg.Port;
             Health.ScriptDir = App.Engine.ScriptDir;
+            Health.BinDir = App.Engine.BinDir;
             _summary = "正在重开 " + s.Name + "，随后自动投递 …";
             Ui(delegate { Invalidate(); });
             ThreadPool.QueueUserWorkItem(delegate
@@ -325,9 +330,9 @@ namespace AutoApply
                 T.Draw(g, "「重开」会拉起程序专用浏览器（不是平时那个 Chrome），登录 / 拖完滑块后自动开始投递", Fonts.Small, T.Text3, 32, 62);
             }
 
-            // 右上操作按钮（右边留出窗口三键的位置）
-            Ghost(g, new RectangleF(W - 452, 26, 108, 32), "全部检查", "health:check", T.Jade);
-            Ghost(g, new RectangleF(W - 334, 26, 108, 32), "全部重开", "health:reopenall", T.Text2);
+            // 右上操作按钮（整行落在窗口胶囊下方，右边留出窗口三键的位置）
+            Ghost(g, new RectangleF(W - 452, 46, 108, 32), "全部检查", "health:check", T.Jade);
+            Ghost(g, new RectangleF(W - 334, 46, 108, 32), "全部重开", "health:reopenall", T.Text2);
 
             // 顶部 KPI —— 全部读缓存，不在这里发任何网络请求
             bool chrome;
@@ -348,10 +353,11 @@ namespace AutoApply
             Kpi(g, new RectangleF(32 + (kw + 14) * 3, ky, kw, kh), "待处理", issues.ToString(),
                 issues == 0 ? T.Jade : T.Warn, BusyNow ? "检查中…" : (_summary.Length > 0 ? _summary : "尚未检查"));
 
-            // 四站卡片 2×2
+            // 四站卡片 2×2（窗口够高时下面再留一条手机看板，矮窗口优先保住卡片）
             float top = ky + kh + 18f;
             float cw = (W - 64f - 18f) / 2f;
-            float chh = Math.Max(150f, Math.Min(196f, (H - top - 40f - 18f) / 2f));
+            bool showWeb = (H - top - 40f) >= (2f * (150f + 18f) + 92f);
+            float chh = Math.Max(150f, Math.Min(196f, (H - top - 40f - 18f - (showWeb ? 92f : 0f)) / 2f));
             var sites = App.Cfg.Sites;
             for (int i = 0; i < sites.Count; i++)
             {
@@ -396,6 +402,35 @@ namespace AutoApply
                 Ghost(g, new RectangleF(x + cw - 176, y + chh - 40, 72, 28), "检查", "health:check:" + s.Key, T.Text2);
                 Ghost(g, new RectangleF(x + cw - 96, y + chh - 40, 72, 28), "重开", "health:reopen:" + s.Key, T.Jade);
             }
+
+            if (showWeb)
+                DrawWeb(g, new RectangleF(32f, top + 2f * (chh + 18f), W - 64f, 74f), App.Web);
+        }
+
+        /// <summary>
+        /// 手机看板条：地址 + 口令 + 两个按钮。只显示本机局域网地址，不做公网映射。
+        /// </summary>
+        private void DrawWeb(Graphics g, RectangleF r, PhoneWeb web)
+        {
+            T.Card(g, r);
+            bool up = web != null && web.Running;
+            T.Dot(g, r.X + 22f, r.Y + 22f, 4.5f, up ? T.Jade : T.Text3);
+            T.Draw(g, "手机 / 平板（同一个 Wi-Fi）", Fonts.Small, T.Text2, r.X + 36f, r.Y + 12f);
+
+            if (!up)
+            {
+                string why = web == null ? "手机页面没起来（看下面的日志）" : (string.IsNullOrEmpty(web.Err) ? "手机页面没起来" : web.Err);
+                T.Draw(g, Fit(g, why, Fonts.Small, r.Width - 300f), Fonts.Small, T.Warn, r.X + 36f, r.Y + 40f);
+                return;
+            }
+
+            T.Draw(g, web.Url, Fonts.H2, T.Jade, r.X + 36f, r.Y + 32f);
+            string pin = web.Pin;
+            if (pin != null && pin.Length == 6) pin = pin.Substring(0, 3) + " " + pin.Substring(3);
+            T.Draw(g, "手机上打开上面的地址，输入口令 " + pin + " · 只在这个局域网里有效", Fonts.Tiny, T.Text3, r.X + 36f, r.Y + 56f);
+
+            Ghost(g, new RectangleF(r.X + r.Width - 200f, r.Y + 24f, 88f, 28f), "换口令", "web:newpin", T.Text2);
+            Ghost(g, new RectangleF(r.X + r.Width - 104f, r.Y + 24f, 88f, 28f), "复制地址", "web:copy", T.Jade);
         }
 
         /// <summary>一行字超宽就截断加省略号：卡片底部的提示不能糊到按钮上去。</summary>
@@ -453,6 +488,21 @@ namespace AutoApply
             if (id == "health:log") { App.GotoPage("log"); return; }
             if (id == "health:check") { CheckAll(true); return; }
             if (id == "health:reopenall") { ReopenAll(); return; }
+            if (id == "web:copy")
+            {
+                if (App.Web == null || !App.Web.Running) { App.Toast("手机页面没起来，没法复制地址"); return; }
+                try { Clipboard.SetText(App.Web.Url); App.Toast("地址已复制：" + App.Web.Url); }
+                catch (Exception ex) { App.Toast("复制失败：" + ex.Message); }
+                return;
+            }
+            if (id == "web:newpin")
+            {
+                if (App.Web == null || !App.Web.Running) { App.Toast("手机页面没起来"); return; }
+                string p = App.Web.Regenerate();
+                App.Toast("新口令 " + p.Substring(0, 3) + " " + p.Substring(3) + "，已经登录的手机需要重新输入");
+                Invalidate();
+                return;
+            }
             if (id.StartsWith("health:check:"))
             {
                 string key = id.Substring("health:check:".Length);

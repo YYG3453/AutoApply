@@ -66,6 +66,12 @@ namespace AutoApply
         private static readonly object _chromeGate = new object();
         /// <summary>我们自己起的那个浏览器进程（用来把它提到最前，别提到用户自己开的窗口上）。</summary>
         private int _chromePid;
+        // 9333 端口归属检查（15 秒缓存，免得每站都吃一次 WMI；null = 归属正常）
+        private DateTime _ownerCheckAt = DateTime.MinValue;
+        private string _ownerProfile = "";
+        private int _ownerPort;
+        private string _ownerProblem;
+        private string _ownerWarned = "";
         private readonly object _lock = new object();
 
         public Engine(string baseDir)
@@ -214,6 +220,49 @@ namespace AutoApply
             catch { return false; }
         }
 
+        /// <summary>本程序专用浏览器的登录态目录（%LOCALAPPDATA%\AutoApply\browser-profile，见 Security.cs）。</summary>
+        public string ProfilePath { get { return ProfileHome.Resolve(BaseDir, Cfg); } }
+
+        /* ------------------------------------------------------------------
+         * 9333 端口归属：连上去的那只浏览器，必须是用本程序登录态目录起的。
+         * 为什么较真：脚本在"调试口上的那个浏览器"里点投递，如果端口被日常浏览器/旧副本占了，
+         * 点击就会落在毫不相干的窗口里。确认不是我们的 → 拒绝跑，并把原因说清楚。
+         * WMI 拿不到命令行（权限不足）时无法确认，只记一次日志放行，不阻塞正常使用。
+         * ------------------------------------------------------------------ */
+        public string ChromeOwnerProblem()
+        {
+            string profile = ProfilePath;
+            if (_ownerCheckAt != DateTime.MinValue &&
+                (DateTime.Now - _ownerCheckAt).TotalSeconds < 15 &&
+                _ownerPort == Cfg.Port &&
+                string.Equals(_ownerProfile, profile, StringComparison.OrdinalIgnoreCase))
+                return _ownerProblem;
+
+            bool confirmed;
+            string detail;
+            bool ours = BrowserOwner.Matches(profile, Cfg.Port, out confirmed, out detail);
+            _ownerCheckAt = DateTime.Now;
+            _ownerProfile = profile;
+            _ownerPort = Cfg.Port;
+
+            if (ours) { _ownerProblem = null; return null; }
+            if (confirmed)
+            {
+                _ownerProblem = "端口 " + Cfg.Port + " 上跑的不是本程序的浏览器（它的配置目录是 " + detail +
+                                "）。为免把「投递」点进别的窗口，已停下；请关掉那个浏览器，或在「平台与关键词」里换一个端口。";
+                Program.Trace("ChromeOwner: " + _ownerProblem);
+                return _ownerProblem;
+            }
+
+            _ownerProblem = null;
+            if (_ownerWarned != profile)
+            {
+                _ownerWarned = profile;
+                Program.Trace("ChromeOwner: 无法确认端口 " + Cfg.Port + " 的归属（WMI 没有给出命令行），按正常情况继续");
+            }
+            return null;
+        }
+
         public bool EnsureChrome(out string msg)
         {
             lock (_chromeGate) { return EnsureChromeLocked(out msg); }
@@ -228,10 +277,29 @@ namespace AutoApply
         private bool EnsureChromeLocked(out string msg)
         {
             msg = "";
-            if (ChromeUp()) { msg = "浏览器已就绪（端口 " + Cfg.Port + "）"; return true; }
+            if (ChromeUp())
+            {
+                // 端口有人应 ≠ 那是我们的浏览器：先验归属，再决定能不能在它里面点投递
+                string problem = ChromeOwnerProblem();
+                if (problem != null) { msg = problem; LastChromeError = problem; return false; }
+                msg = "浏览器已就绪（端口 " + Cfg.Port + "）";
+                return true;
+            }
             var chrome = FindChrome();
             if (chrome == null) { msg = "没找到 Chrome / Edge，请在「平台与关键词」里手动指定浏览器路径"; return false; }
-            var profile = Path.Combine(BaseDir, Cfg.ProfileDir);
+
+            // 低完整性/不受信任的进程起不了 Chrome（crashpad 写不进配置目录，Chrome 以 0x80000003 退出）。
+            // 与其每站白等两次重试，不如第一次就说清楚 —— 用户看到的一句话才是能行动的。
+            string il = IntegrityLevel();
+            if (il != "medium" && il != "high")
+            {
+                msg = "本程序当前是受限权限（" + il + "），自己启动浏览器会被系统拒绝。原因多半是 AutoApply.exe 所在文件夹被打了「低完整性」标签，" +
+                      "右键 tools\\修复低权限标签.cmd →「以管理员身份运行」即可修复；浏览器已经在跑时，可以直接继续投递。";
+                LastChromeError = msg;
+                Program.Trace("EnsureChrome: 权限 " + il + "，直接放弃拉浏览器");
+                return false;
+            }
+            var profile = ProfilePath;
             try { if (!Directory.Exists(profile)) Directory.CreateDirectory(profile); }
             catch (Exception ex) { Program.Trace("EnsureChrome: 建配置目录失败 " + ex.Message); }
 
@@ -373,36 +441,9 @@ namespace AutoApply
         /// </summary>
         private static int KillChromeOnProfile(string profile)
         {
-            int n = 0;
-            try
-            {
-                using (var q = new ManagementObjectSearcher(
-                    "SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name='chrome.exe' OR Name='msedge.exe'"))
-                using (var rs = q.Get())
-                {
-                    foreach (ManagementObject mo in rs)
-                    {
-                        string cmd = null;
-                        try { cmd = mo["CommandLine"] as string; } catch { }
-                        if (string.IsNullOrEmpty(cmd)) continue;
-                        if (cmd.IndexOf(profile, StringComparison.OrdinalIgnoreCase) < 0) continue;
-                        int pid = 0;
-                        try { pid = Convert.ToInt32(mo["ProcessId"]); } catch { }
-                        if (pid <= 0) continue;
-                        try
-                        {
-                            var psi = new ProcessStartInfo("taskkill", "/PID " + pid + " /T /F");
-                            psi.UseShellExecute = false; psi.CreateNoWindow = true;
-                            psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
-                            using (var k = Process.Start(psi)) { k.WaitForExit(4000); }
-                            n++;
-                        }
-                        catch { }
-                    }
-                }
-            }
-            catch (Exception ex) { Program.Trace("KillChromeOnProfile: " + ex.Message); }
-            return n;
+            // 交给 BrowserOwner：按 --user-data-dir 精确比较，不再用"命令行里含有这个字符串"
+            // （旧写法在 owner=...\browser-profile、profile=...\browser-profile2 时会误杀）
+            return BrowserOwner.KillBrowsersOn(profile);
         }
 
         // ---- 当前进程的完整性级别：low / untrusted 时 Chrome 一定拉不起来 ----
@@ -430,7 +471,7 @@ namespace AutoApply
                 if (dir == null || dir.Length == 0) return "拿不到启动文件夹";
                 string chrome = FindChrome();
                 if (chrome.Length == 0) return "没找到 chrome.exe";
-                string profile = Path.Combine(BaseDir, Cfg.ProfileDir);
+                string profile = ProfilePath;
                 string path = Path.Combine(dir, "AutoApply 浏览器.cmd");
                 var sb = new StringBuilder();
                 sb.AppendLine("@echo off");

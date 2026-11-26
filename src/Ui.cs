@@ -32,6 +32,12 @@ namespace AutoApply
         {
             public string Id;
             public RectangleF Rect;
+            /// <summary>
+            /// 局部重绘的范围。默认就是 Rect；当一块视觉被拆成两个命中区
+            /// （例如词条本体和右边的 ×）时，两个命中区都要传整块，
+            /// 否则悬停动画只重画半边，会在胶囊上留下半截高亮。
+            /// </summary>
+            public RectangleF Dirty;
         }
 
         protected Page(MainForm app)
@@ -43,8 +49,33 @@ namespace AutoApply
             _anim.Tick += (s, e) => StepAnim();
         }
 
-        protected void AddHit(string id, RectangleF r) { Hits.Add(new Hit { Id = id, Rect = r }); }
-        protected void ClearHits() { Hits.Clear(); }
+        protected void AddHit(string id, RectangleF r) { AddHitCore(id, r, r); }
+
+        /// <summary>命中区只占视觉的一部分时用这个：悬停/离开时按 dirty 整块重画。</summary>
+        protected void AddHit(string id, RectangleF r, RectangleF dirty) { AddHitCore(id, r, dirty); }
+
+        /// <summary>
+        /// 同一个 id 只保留一份。局部重绘时页面会把整块卡片的命中区再报一遍，
+        /// 不去重的话 Hits 会一轮一轮地翻倍，旧的矩形也会一直留在里面。
+        /// </summary>
+        private void AddHitCore(string id, RectangleF r, RectangleF dirty)
+        {
+            for (int i = 0; i < Hits.Count; i++)
+            {
+                if (Hits[i].Id != id) continue;
+                Hits[i].Rect = r;
+                Hits[i].Dirty = dirty;
+                return;
+            }
+            Hits.Add(new Hit { Id = id, Rect = r, Dirty = dirty });
+        }
+
+        /// <summary>
+        /// 只在整页重绘时清空命中区。悬停动画是局部 Invalidate，一次只重画一块；
+        /// 那时 ClearHits 会把其它卡片的命中区一并丢掉，结果是移过去没有悬停、
+        /// 点也点不动，得等下一次整页重绘才恢复。
+        /// </summary>
+        protected void ClearHits() { if (_paintFull) Hits.Clear(); }
 
         /// <summary>切到本页时调用：内容从底色里浮出来，图表自己按 AppearK 长出来。</summary>
         public void StartAppear()
@@ -116,7 +147,7 @@ namespace AutoApply
                 {
                     if (Hits[i].Id != k) continue;
                     found = true;
-                    var r = Hits[i].Rect;
+                    var r = Hits[i].Dirty.IsEmpty ? Hits[i].Rect : Hits[i].Dirty;
                     if (r.X < x0) x0 = r.X;
                     if (r.Y < y0) y0 = r.Y;
                     if (r.Right > x1) x1 = r.Right;
@@ -136,14 +167,21 @@ namespace AutoApply
         {
             base.OnMouseMove(e);
             var over = HitAt(e.Location);
-            foreach (var h in Hits) SetTarget(h.Id, h == over);
+            // 指针移动时最多只有一项处于悬停：按已知的悬停项全部收回，而不是只遍历 Hits。
+            // 局部重绘会重建 Hits（只包含本块矩形内的项），漏掉的那些会把悬停状态卡在 1，
+            // 画面上就留下消不掉的高亮；遍历 HoverTo 才能保证它们一定会淡回去。
+            string keep = over != null ? over.Id : null;
+            foreach (var k in new List<string>(HoverTo.Keys))
+                if (k != keep) SetTarget(k, false);
+            if (over != null) SetTarget(over.Id, true);
             Cursor = over != null ? Cursors.Hand : Cursors.Default;
         }
 
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
-            foreach (var h in Hits) SetTarget(h.Id, false);
+            // 同上：按已知的悬停项收回，Hits 可能只是最近一次局部重绘里的那一小块。
+            foreach (var k in new List<string>(HoverTo.Keys)) SetTarget(k, false);
             Cursor = Cursors.Default;
         }
 
@@ -185,8 +223,29 @@ namespace AutoApply
 
         // ---------- 顶部拖动条：让鼠标穿透到窗体去做 HTCAPTION ----------
         private const int WM_NCHITTEST = 0x0084;
+        private const int WM_PAINT = 0x000F;
         private const int HTTRANSPARENT = -1;
         private const int HTCLIENT = 1;
+
+        /// <summary>本次 WM_PAINT 是否覆盖整个客户区（整页重绘）；由 WndProc 在绘制前算好。</summary>
+        private bool _paintFull = true;
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct RECT { public int Left, Top, Right, Bottom; }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetUpdateRect(IntPtr hWnd, out RECT rect, bool erase);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
+
+        private bool PaintCoversClient()
+        {
+            RECT u, c;
+            if (!GetUpdateRect(Handle, out u, false)) return true;   // 没有更新区就当整页
+            if (!GetClientRect(Handle, out c)) return true;
+            return u.Left <= 0 && u.Top <= 0 && u.Right >= c.Right && u.Bottom >= c.Bottom;
+        }
 
         /// <summary>该点是否落在页面内某个可点区域上（是的话拖动条让位，按钮照常可点）。</summary>
         internal bool HasHitAt(PointF lp)
@@ -210,6 +269,14 @@ namespace AutoApply
 
         protected override void WndProc(ref Message m)
         {
+            if (m.Msg == WM_PAINT)
+            {
+                // 绘制前问一下这次要盖多大：只有整页重绘才重建命中区。
+                _paintFull = PaintCoversClient();
+                base.WndProc(ref m);
+                _paintFull = true;
+                return;
+            }
             if (m.Msg == WM_NCHITTEST)
             {
                 var cp = PointToClient(ScreenPoint(m.LParam));

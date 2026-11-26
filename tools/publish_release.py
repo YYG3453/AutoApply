@@ -1,4 +1,4 @@
-import ctypes, json, os, sys, time, urllib.request, urllib.error
+import ctypes, hashlib, json, os, sys, time, urllib.request, urllib.error
 
 sys.stdout.reconfigure(encoding="utf-8")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -7,6 +7,10 @@ VER = (sys.argv[1] if len(sys.argv) > 1 else "1.8.9").lstrip("v")
 TAG = "v" + VER
 ZIP = os.path.join(HERE, "..", "dist", "AutoApply-%s-win-x64.zip" % VER)
 ASSET = "AutoApply-%s-win-x64.zip" % VER
+SUMS = os.path.join(HERE, "..", "dist", "SHA256SUMS.txt")
+SUMS_ASSET = "SHA256SUMS.txt"
+MARK_A = "<!-- sha256:begin -->"
+MARK_B = "<!-- sha256:end -->"
 
 
 class CREDENTIAL(ctypes.Structure):
@@ -57,6 +61,35 @@ HDR = {"Authorization": "Bearer " + TOKEN, "Accept": "application/vnd.github+jso
        "User-Agent": "AutoApply-release", "X-GitHub-Api-Version": "2022-11-28"}
 
 
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def strip_checksum(body):
+    i = body.find(MARK_A)
+    j = body.find(MARK_B)
+    if i >= 0 and j > i:
+        return body[:i] + body[j + len(MARK_B):]
+    return body
+
+
+def checksum_block(asset, digest):
+    link = "https://github.com/%s/releases/download/%s/SHA256SUMS.txt" % (REPO, TAG)
+    return (MARK_A + "\n"
+            "## 核对安装包（SHA256）\n\n"
+            "下载 `" + asset + "` 后先核对哈希，确认文件没被替换或截断：\n\n"
+            "```\nCertUtil -hashfile " + asset + " SHA256\n```\n\n"
+            "应等于：\n\n"
+            "```\n" + digest + "  " + asset + "\n```\n\n"
+            "也可以直接下载 [SHA256SUMS.txt](" + link + ") 对照。解压后的 `AutoApply.exe` 另有一份包内 "
+            "`SHA256SUMS.txt`，用 `CertUtil -hashfile AutoApply.exe SHA256` 核对。\n"
+            + MARK_B + "\n")
+
+
 def call(url, method="GET", data=None, ctype="application/json", accept_status=(200, 201)):
     req = urllib.request.Request(url, data=data, method=method)
     for k, v in HDR.items():
@@ -100,21 +133,53 @@ assets = assets if isinstance(assets, list) else []
 for a in assets:
     print("  asset: %s %.1f MB state=%s" % (a["name"], a["size"] / 1048576.0, a["state"]))
 
-same = next((a for a in assets if a["name"] == ASSET), None)
-if same is not None:
-    # 同一个 tag 重发（改文案/修 bug 但不换版本号）：先删旧资产再传，别留下两个同名包
-    print("replacing existing asset id=%s size=%.1f MB" % (same["id"], same["size"] / 1048576.0))
-    sc, _ = call("https://api.github.com/repos/%s/releases/assets/%s" % (REPO, same["id"]), "DELETE", accept_status=(204, 200))
+
+def delete_asset(name):
+    hit = next((a for a in assets if a["name"] == name), None)
+    if hit is None:
+        return
+    # 同一个 tag 重发（改文案 / 修 bug 但不换版本号）：先删旧资产再传，别留下两个同名文件
+    print("replacing existing asset %s id=%s size=%.1f MB" % (name, hit["id"], hit["size"] / 1048576.0))
+    sc, _ = call("https://api.github.com/repos/%s/releases/assets/%s" % (REPO, hit["id"]), "DELETE",
+                 accept_status=(204, 200))
     print("delete ->", sc)
-if True:
-    size = os.path.getsize(ZIP)
-    print("uploading %.1f MB ..." % (size / 1048576.0))
+
+
+def upload(path, ctype):
+    name = os.path.basename(path)
+    data = open(path, "rb").read()
+    print("uploading %s %.1f MB ..." % (name, len(data) / 1048576.0))
     t0 = time.time()
-    sc, up = call("https://uploads.github.com/repos/%s/releases/%s/assets?name=%s" % (REPO, rel_id, ASSET),
-                  "POST", open(ZIP, "rb").read(), "application/zip")
+    sc, up = call("https://uploads.github.com/repos/%s/releases/%s/assets?name=%s" % (REPO, rel_id, name),
+                  "POST", data, ctype)
     if sc not in (200, 201):
-        sys.exit("upload failed")
+        sys.exit("upload failed: " + name)
     print("uploaded %s %.1f MB state=%s in %.0fs" % (up["name"], up["size"] / 1048576.0, up["state"], time.time() - t0))
+
+
+# 先算哈希：zip 的哈希写进发布页 + 单独上传 SHA256SUMS.txt，下载的人能核对
+digest = sha256_file(ZIP)
+with open(SUMS, "w", encoding="ascii", newline="\r\n") as f:
+    f.write("%s  %s\n" % (digest, ASSET))
+print("sha256(%s) = %s" % (ASSET, digest))
+
+delete_asset(ASSET)
+delete_asset(SUMS_ASSET)
+upload(ZIP, "application/zip")
+upload(SUMS, "text/plain; charset=utf-8")
+
+# 发布正文里附上核对方法（幂等：重复发布不会越写越多）
+sc, cur = call("https://api.github.com/repos/%s/releases/%s" % (REPO, rel_id))
+if cur:
+    body = cur.get("body") or ""
+    new_body = strip_checksum(body).rstrip() + "\n\n" + checksum_block(ASSET, digest)
+    if new_body.strip() != body.strip():
+        sc, _ = call("https://api.github.com/repos/%s/releases/%s" % (REPO, rel_id), "PATCH",
+                     json.dumps({"body": new_body}).encode("utf-8"),
+                     "application/json; charset=utf-8")
+        print("release body checksum block ->", sc)
+    else:
+        print("release body already has checksum block")
 
 time.sleep(1)
 sc, latest = call("https://api.github.com/repos/%s/releases/latest" % REPO)

@@ -171,14 +171,14 @@ namespace AutoApply
 
         // ---------------- 登录态目录迁移 ----------------
         /// <summary>本程序的 browser-profile 里还没有 cookie 时，把旧流程的 cp2 目录整体复制过来（省掉重新登录四个平台）。</summary>
-        public static string MigrateProfile(string baseDir, string legacyRoot, string profileDir)
+        public static string MigrateProfile(string legacyRoot, string profilePath)
         {
             try
             {
-                if (string.IsNullOrEmpty(profileDir)) return null;
+                if (string.IsNullOrEmpty(profilePath)) return null;
                 var src = Path.Combine(legacyRoot, "cp2");
                 if (!Directory.Exists(src)) return null;
-                var dst = Path.Combine(baseDir, profileDir);
+                var dst = profilePath;
                 var dstCookies = Path.Combine(dst, "Default", "Network", "Cookies");
                 if (File.Exists(dstCookies) && new FileInfo(dstCookies).Length > 2048) return null;   // 已经登录过了，不动
                 if (!File.Exists(Path.Combine(src, "Default", "Network", "Cookies"))) return null;
@@ -195,7 +195,7 @@ namespace AutoApply
                     p.StandardError.ReadToEnd();
                     p.WaitForExit(120000);
                 }
-                if (File.Exists(dstCookies) && new FileInfo(dstCookies).Length > 2048) return "已把旧登录态复制到 " + profileDir;
+                if (File.Exists(dstCookies) && new FileInfo(dstCookies).Length > 2048) return "已把旧登录态复制到 " + ProfileHome.Short(profilePath);
                 return null;
             }
             catch { return null; }
@@ -261,7 +261,7 @@ namespace AutoApply
             }
 
             // 3) 登录态目录（只在本程序还没登录过时做）
-            var migrated = MigrateProfile(f.BaseDir, legacyRoot, cfg.ProfileDir);
+            var migrated = MigrateProfile(legacyRoot, f.Engine.ProfilePath);
             if (!string.IsNullOrEmpty(migrated)) notify("登录态已迁移", migrated + "，四个平台不用重新登录");
             else log("dim", "登录态目录无需迁移");
         }

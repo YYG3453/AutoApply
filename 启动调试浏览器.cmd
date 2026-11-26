@@ -6,7 +6,7 @@ rem  只在「点『重开』拉不起浏览器」时才需要它。
 rem  用你自己双击的方式启动 Chrome：独立配置目录 + 调试端口 9333。
 rem  起来之后回到 AutoApply 点「全部检查」，端口那一格会变成「已连接」。
 rem ============================================================
-set "PROFILE=%~dp0browser-profile"
+set "PROFILE=%~dp0data\browser-profile"
 set "CHROME="
 for %%P in (
   "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"

@@ -24,10 +24,11 @@ namespace AutoApply
         private string _note = "";
         private int _probing;
 
-        public WizardForm(AppCfg cfg, string scriptDir)
+        public WizardForm(AppCfg cfg, string scriptDir, string binDir = null)
         {
             _cfg = cfg;
             _scriptDir = scriptDir;
+            Health.BinDir = string.IsNullOrEmpty(binDir) ? scriptDir : binDir;
             _cities = new List<string>(cfg.Cities);
             _keywords = new List<string>(cfg.Keywords);
 

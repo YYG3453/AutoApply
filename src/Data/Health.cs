@@ -46,15 +46,19 @@ namespace AutoApply
             }
         }
 
-        private const string PROBE_JS =
-            "(function(){var t=document.body?document.body.innerText:'';" +
-            "var cap=/滑动验证|访问验证|请按住滑块|拖动到最右边|安全验证|验证码/.test(t);" +
-            "var login=/扫码登录|登录\\/注册|立即登录|请先登录|登录后查看/.test(t);" +
-            "var ok=/我的简历|在线简历|个人中心|我的申请|消息|退出登录|已投递|职位|搜索/.test(t);" +
-            "return JSON.stringify({url:location.href,title:document.title,len:t.length,cap:cap,login:login&&!ok});})()";
-
         public static int Port = 9333;
+
+        /// <summary>数据目录（runs.jsonl / state-*.jsonl 所在）。</summary>
         public static string ScriptDir = "";
+
+        /// <summary>
+        /// .js 代码目录（scripts\，随版本走）。不能拿数据目录去拼 evalfile.js：
+        /// 便携版的数据目录是 data\，里面没有 js，检查会永远"页面没响应"。
+        /// </summary>
+        public static string BinDir = "";
+
+        /// <summary>上一次检查为什么没拿到结果——给界面一句能看懂的话。</summary>
+        public static string LastError = "";
 
         private static string BaseDir
         {
@@ -113,32 +117,75 @@ namespace AutoApply
             catch { return false; }
         }
 
-        /// <summary>跑一次 cdp.js 命令，返回 (exit, stdout, stderr)。</summary>
+        /// <summary>跑一次 cdp.js 命令，成功返回 stdout，失败返回空并把原因记进 LastError。</summary>
         private static string RunTool(string script, string args, string match)
         {
+            LastError = "";
             try
             {
-                var psi = new ProcessStartInfo(AssignedNode(), "--experimental-websocket \"" + Path.Combine(ScriptDir, script) + "\" " + args);
+                string codeDir = BinDir.Length > 0 ? BinDir : ScriptDir;
+                string scriptPath = Path.Combine(codeDir, script);
+                if (!File.Exists(scriptPath))
+                {
+                    LastError = "程序不完整：找不到 " + scriptPath;
+                    return "";
+                }
+                var psi = new ProcessStartInfo(AssignedNode(), "--experimental-websocket \"" + scriptPath + "\" " + args);
                 psi.UseShellExecute = false;
                 psi.CreateNoWindow = true;
                 psi.RedirectStandardOutput = true;
                 psi.RedirectStandardError = true;
-                psi.WorkingDirectory = ScriptDir;
+                psi.WorkingDirectory = codeDir;
                 psi.EnvironmentVariables["CDP_PORT"] = Port.ToString();
                 psi.EnvironmentVariables["CDP_MATCH"] = match;
                 using (var p = Process.Start(psi))
                 {
                     var o = p.StandardOutput.ReadToEnd();
-                    p.StandardError.ReadToEnd();
+                    var e = p.StandardError.ReadToEnd();
                     if (!p.WaitForExit(20000))
                     {
                         try { p.Kill(); } catch { }
+                        LastError = "检查超时（20 秒没回应）";
                         return "";
                     }
-                    return p.ExitCode == 0 ? o.Trim() : "";
+                    if (p.ExitCode != 0)
+                    {
+                        LastError = FirstLine(e);
+                        return "";
+                    }
+                    return o.Trim();
                 }
             }
-            catch { return ""; }
+            catch (Exception ex)
+            {
+                LastError = "node 起不来：" + ex.Message;
+                return "";
+            }
+        }
+
+        /// <summary>脚本报错只取第一行，去掉 ERR 前缀并截断，避免把整段英文栈贴到界面上。</summary>
+        private static string FirstLine(string s)
+        {
+            if (s == null) return "";
+            s = s.Trim();
+            if (s.Length == 0) return "";
+            int nl = s.IndexOfAny(new char[] { '\r', '\n' });
+            if (nl > 0) s = s.Substring(0, nl);
+            if (s.StartsWith("ERR ", StringComparison.Ordinal)) s = s.Substring(4);
+            if (s.Length > 110) s = s.Substring(0, 110) + "…";
+            return s;
+        }
+
+        /// <summary>把 CDP/脚本的英文错误翻成一句能照做的中文。</summary>
+        private static string Explain(string e)
+        {
+            if (e == null || e.Length == 0) return "";
+            string s = e.ToLowerInvariant();
+            if (s.IndexOf("timeout") >= 0) return "标签页卡住了 · 点「重开」重开这一站";
+            if (s.IndexOf("no page matching") >= 0) return "标签页正在跳转 · 稍后再点「检查」";
+            if (s.IndexOf("ws ") >= 0 || s.IndexOf("connect") >= 0) return "连不上这个标签页 · 点「重开」";
+            if (s.IndexOf("node") >= 0 || s.IndexOf("找不到") >= 0) return e;
+            return "检查失败：" + e;
         }
 
         public static SiteHealth Probe(SiteCfg s)
@@ -175,9 +222,12 @@ namespace AutoApply
             if (raw.Length == 0)
             {
                 string u = h.Url == null ? "" : h.Url.ToLowerInvariant();
-                h.Note = (u.IndexOf("login") >= 0 || u.IndexOf("passport") >= 0)
-                    ? "未登录 · 点「重开」后在这个窗口里登录"
-                    : "页面没响应";
+                if (u.IndexOf("login") >= 0 || u.IndexOf("passport") >= 0)
+                    h.Note = "未登录 · 点「重开」后在这个窗口里登录";
+                else if (LastError.Length > 0)
+                    h.Note = Explain(LastError);
+                else
+                    h.Note = "页面没响应（点「重开」重建标签页）";
                 return h;
             }
             // cdp.js eval 会把返回值原样打印，这里可能是带引号的 JSON 字符串

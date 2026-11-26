@@ -82,6 +82,17 @@ namespace AutoApply
         public int NightStyle = 4;
 
         /// <summary>
+        /// 手机看板：同一个 Wi-Fi / 有线局域网里，用手机浏览器看状态、点按钮。
+        /// 只监听局域网私有网段（见 PhoneWeb.IsLan），不需要 internet 权限，也不做公网映射。
+        /// </summary>
+        public bool WebEnabled = true;
+        public int WebPort = 8737;
+        /// <summary>6 位数字口令（手机首次进入时输入），空就是还没生成。</summary>
+        public string WebPin = "";
+        /// <summary>登录成功后换的会话 key，只存在本机 config.json 里。</summary>
+        public string WebKey = "";
+
+        /// <summary>
         /// 招呼语实验：平台侧的招呼语是账号设置里的一句固定话，投递时由平台自动带出，
         /// 程序改不了正文。所以这里只做三件事——存三版文本、记下每次切换的时间、
         /// 按时间把投递和回复对上号算各版回复率。

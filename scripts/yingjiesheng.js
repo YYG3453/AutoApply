@@ -131,6 +131,7 @@ async function scan(c) {
         title: t.split(' ')[0] || '',
         company,
         text: t.slice(0, 120),
+        info: t.slice(0, 240),
         loc: m ? m[0] : '',
         city: m ? m[1] : '',
         applied: !c2.querySelector('.notdelivery'),
@@ -238,7 +239,7 @@ async function main() {
           if (sent >= maxJobs) { stop = 'max'; break; }
           const key = (j.title + '|' + j.loc).slice(0, 120);
           if (seen.has(key)) { skipped++; continue; }
-          const sc = SCORE.evaluate({ title: j.title, company: '', kw });
+          const sc = SCORE.evaluate({ title: j.title, company: '', kw, info: j.info, city });
           if (!sc.pass) {
             if (!skipSeen.has(key)) { skipSeen.add(key); filtered++; skipRecord({ site: 'yjs', key, title: j.title, company: j.company || '', loc: j.loc, kw, score: sc.score, reason: sc.reason, ts: new Date().toISOString() }); }
             skipped++; log('FILTER ' + sc.score + ' ' + sc.reason + ' | ' + j.title + ' ' + j.loc); continue;
